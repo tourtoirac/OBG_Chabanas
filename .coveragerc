@@ -1,0 +1,28 @@
+[run]
+omit =
+    manage.py
+    */migrations/*
+    */urls.py
+    */__init__.py
+    */params_ext.py
+    */*settings.py
+    */apps.py
+    */admin.py
+    */models.py
+    */tests.py
+
+[report]
+omit =
+    manage.py
+    */migrations/*
+    */urls.py
+    */__init__.py
+    */params_ext.py
+    */*settings.py
+    */apps.py
+    */admin.py
+    */models.py
+    */tests.py
+
+[html]
+skip_empty = True
