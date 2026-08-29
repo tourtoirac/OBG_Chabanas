@@ -5,7 +5,7 @@ from django.db import models
 
 class Waterloo(models.Model):
     waterloo_key = models.UUIDField(null=False, blank=False, editable=False, unique=True, default=uuid.uuid1)
-    waterloo_code = models.CharField(max_length=12, null=False, blank=False, unique=True)
+    waterloo_code = models.CharField(max_length=12, null=False, blank=True, unique=False)
     player1_nickname = models.CharField(max_length=64, null=False, blank=False, unique=False)
     player1_key = models.CharField(max_length=64, null=False, blank=True, default='')
     player2_nickname = models.CharField(max_length=64, blank=True, default= '', unique=False)

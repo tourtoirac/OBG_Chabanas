@@ -1,5 +1,6 @@
 import logging
 
+from datetime import datetime, timedelta, UTC
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
@@ -13,7 +14,7 @@ from Waterloo.tools import (
     is_game_participant,
     return_waterloo_json,
 )
-from Waterloo.waterloo_settings import COUNTERS
+from Waterloo.waterloo_settings import GAME_JSON
 
 logger = logging.getLogger(__name__)
 
@@ -21,22 +22,22 @@ logger = logging.getLogger(__name__)
 @require_http_methods(["POST"])
 def waterloo_create(request) -> HttpResponse:
     """
-    Create a Waterloo session is enough space is remaining
+    Create a Waterloo session if enough space is remaining
     :param request: Request information
     :type request: Http request
     :return: HTTP response code
     :rtype: HttpResponse
     """
     requested_values = [
-        "nickname",
-        "key",
+        "player_nickname",
+        "player_key",
     ]
     data = validate_request(request, requested_values)
     if not isinstance(data, dict):
         return data
 
-    nickname = data['nickname']
-    key = data['key']
+    nickname = data['player_nickname']
+    key = data['player_key']
 
     number_of_active_session = Waterloo.objects.filter(active=True).count()
     if number_of_active_session > PARAMS_EXT['MAX_ACTIVE_SESSIONS']:
@@ -46,13 +47,43 @@ def waterloo_create(request) -> HttpResponse:
         waterloo_code=game_code,
         player1_nickname=nickname,
         player1_key=key,
-        game_json=COUNTERS,
+        game_json=GAME_JSON,
         active=True,
     )
     data = {
-        'waterloo_code': game.waterloo_code
+        'game_key': game.waterloo_key,
+        'game_code': game.waterloo_code,
     }
     return JsonResponse(status=201, data=data)
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def waterloo_get(request) -> HttpResponse:
+    """
+    Return a Waterloo game information
+    :param request: Request information
+    :type request: Http request
+    :return: HTTP response code
+    :rtype: HttpResponse
+    """
+    requested_values = [
+        "game_code",
+    ]
+    data = validate_request(request, requested_values)
+    if not isinstance(data, dict):
+        return data
+
+    game_code = data['game_code']
+    game_key = data.get('game_key', '')
+
+    game = Waterloo.objects.filter(waterloo_code=game_code, active=True).first()
+    if not game:
+        game = get_object_or_404(Waterloo, waterloo_key=game_key, active=False)
+
+    data = {
+        'game': return_waterloo_json(game, sat_list=['game_json'])
+    }
+    return JsonResponse(status=200, data=data)
 
 @csrf_exempt
 @require_http_methods(["POST"])
@@ -64,14 +95,26 @@ def waterloo_list(request) -> HttpResponse:
     :return: HTTP response code
     :rtype: HttpResponse
     """
-    active_game_qs = Waterloo.objects.filter(active=True).order_by('-created_at')
+    data = validate_request(request, [])
+    sat_list = data.get('sat_list', None)
+
+    # deactivates the games that are older than the limit set
+    Waterloo.objects.filter(
+        active=True,
+        created_at__lte=datetime.now(UTC) - timedelta(
+            days=PARAMS_EXT["GAME_MAX_DURATION"]
+        )
+    ).update(active=False, waterloo_code='')
+
+    games = Waterloo.objects.filter(active=True).order_by('-created_at')
     active_games = []
-    for game in active_game_qs:
-        active_games.append(return_waterloo_json(game))
+    for game in games:
+        active_games.append(return_waterloo_json(game, sat_list=sat_list))
 
     data = {
         "games": active_games
     }
+    logger.debug(data)
     return JsonResponse(status=200, data=data)
 
 @csrf_exempt

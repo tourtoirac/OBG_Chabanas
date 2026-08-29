@@ -22,7 +22,8 @@ PARAMS_EXT = {
             }
         }
     },
-    "MAX_ACTIVE_SESSIONS": 10
+    "MAX_ACTIVE_SESSIONS": 1000,
+    "GAME_MAX_DURATION": 7 # in days
 }
 
 BAD_REQUEST = "Bad Request"
