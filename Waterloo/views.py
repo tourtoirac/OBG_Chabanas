@@ -60,7 +60,7 @@ def waterloo_create(request) -> HttpResponse:
 @require_http_methods(["POST"])
 def waterloo_get(request) -> HttpResponse:
     """
-    Return a Waterloo game information
+    Return a Waterloo game information. Game must be active.
     :param request: Request information
     :type request: Http request
     :return: HTTP response code
@@ -74,11 +74,7 @@ def waterloo_get(request) -> HttpResponse:
         return data
 
     game_code = data['game_code']
-    game_key = data.get('game_key', '')
-
-    game = Waterloo.objects.filter(waterloo_code=game_code, active=True).first()
-    if not game:
-        game = get_object_or_404(Waterloo, waterloo_key=game_key, active=False)
+    game = get_object_or_404(Waterloo, waterloo_code=game_code, active=True)
 
     data = {
         'game': return_waterloo_json(game, sat_list=['game_json'])
