@@ -22,5 +22,5 @@ admin.site.index_title = 'Chabanas index'
 
 urlpatterns = [
     path("admin/", admin.site.urls),
-    path("waterloo/", include("Waterloo.urls")),
+    path("game/", include("Game.urls")),
 ]
