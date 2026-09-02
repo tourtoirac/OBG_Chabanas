@@ -110,7 +110,7 @@ def session_list(request) -> HttpResponse:
         )
     ).update(active=False, code='')
 
-    active_games = []
+    active_games = {}
     game_names = Game.objects.filter(active=True).values_list('name', flat=True)
     for name in game_names:
         if name in requested_games:
