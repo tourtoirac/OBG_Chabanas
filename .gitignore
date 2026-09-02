@@ -4,3 +4,4 @@ Waterloo/__pycache__/
 Waterloo/migrations/__pycache__/
 Game/__pycache__/
 Game/migrations/__pycache__/
+.coverage

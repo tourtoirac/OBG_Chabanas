@@ -28,7 +28,7 @@ def session_create(request) -> HttpResponse:
     :rtype: HttpResponse
     """
     requested_values = [
-        "name",
+        "game_name",
         "player_nickname",
         "player_key",
     ]
@@ -36,7 +36,7 @@ def session_create(request) -> HttpResponse:
     if not isinstance(data, dict):
         return data
 
-    game_name = data['name']
+    game_name = data['game_name']
     nickname = data['player_nickname']
     key = data['player_key']
 
@@ -95,8 +95,12 @@ def session_list(request) -> HttpResponse:
     :return: HTTP response code
     :rtype: HttpResponse
     """
-    data = validate_request(request, [])
+    requested_values = [
+        "requested_games",
+    ]
+    data = validate_request(request, requested_values)
     sat_list = data.get('sat_list', None)
+    requested_games = data['requested_games']
 
     # deactivates the games that are older than the limit set
     Session.objects.filter(
@@ -109,10 +113,11 @@ def session_list(request) -> HttpResponse:
     active_games = []
     game_names = Game.objects.filter(active=True).values_list('name', flat=True)
     for name in game_names:
-        active_games[name] = []
-        sessions = Session.objects.filter(game__name=name, active=True)
-        for session in sessions:
-            active_games[name].append(return_session_json(session, sat_list=sat_list))
+        if name in requested_games:
+            active_games[name] = []
+            sessions = Session.objects.filter(game__name=name, active=True)
+            for session in sessions:
+                active_games[name].append(return_session_json(session, sat_list=sat_list))
 
     data = {
         "sessions": active_games
