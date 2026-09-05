@@ -1,6 +1,17 @@
 from django.contrib import admin
 
-from Game.models import Game, Session
+from Game.models import Game, Variant
+
+class VariantInLine(admin.TabularInline):
+    model = Variant
+    fk_name = "game"
+    extra = 0
+    fields = (
+        "name",
+        "max_players",
+        "max_watchers",
+        "active",
+    )
 
 
 @admin.register(Game)
@@ -10,6 +21,7 @@ class GameAdmin(admin.ModelAdmin):
         'name',
         'max_players',
         'max_watchers',
+        'max_sessions',
         "game_json",
         "active",
     )
@@ -28,18 +40,17 @@ class GameAdmin(admin.ModelAdmin):
     list_filter = (
         'active',
     )
+    inlines = [VariantInLine]
 
 
-@admin.register(Session)
-class SessionAdmin(admin.ModelAdmin):
+@admin.register(Variant)
+class VariantAdmin(admin.ModelAdmin):
     fields = (
         'key',
         'game',
-        'code',
-        'player1_nickname',
-        'player1_key',
-        'player2_nickname',
-        'player2_key',
+        'name',
+        'max_players',
+        'max_watchers',
         "game_json",
         "active",
     )
@@ -47,16 +58,14 @@ class SessionAdmin(admin.ModelAdmin):
         "key",
     )
     list_display = (
+        "name",
         "game",
-        "code",
+        "active"
     )
     search_fields = (
-        "code",
-        "player1_nickname",
-        "player1_key",
-        "player2_nickname",
-        "player2_key",
+        "name",
     )
     list_filter = (
         "game",
+        "active"
     )
