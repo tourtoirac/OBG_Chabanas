@@ -30,10 +30,11 @@ def return_session_json(session: Session, sat_list=None):
     player_list = []
     players = Player.objects.filter(session=session)
     for player in players:
-        player_list.append(return_player_json(player))
+        player_list.append(return_player_json(player, include_key=False))
 
     data = {
         "name": session.game.name,
+        "key": session.key,
         "code": session.code,
         "players" : player_list,
         "active": session.active,
@@ -47,9 +48,11 @@ def return_session_json(session: Session, sat_list=None):
 def is_session_participant(session: Session, nickname: str, key: str) -> bool:
     return Player.objects.filter(session=session, nickname=nickname, key=key).exists()
 
-def return_player_json(player: Player):
-    return {
+def return_player_json(player: Player, include_key=False):
+    player_data = {
         "nickname": player.nickname,
-        "key": player.key,
         "owner": player.owner,
     }
+    if include_key:
+        player_data['key'] = player.key
+    return player_data

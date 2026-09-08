@@ -27,7 +27,7 @@ class Session(models.Model):
         )
 
     def __str__(self):
-        return f"{self.game.name} - {self.key} - {self.player1_nickname} vs {self.player2_nickname}"
+        return f"{self.game.name} - {self.code}"
 
 
 class Player(models.Model):

@@ -102,8 +102,8 @@ class SessionCreateTests(TestCase):
     def test_session_create_success(self):
         data = {
             "game_name": "waterloo",
-            "player_nickname": "Chins",
-            "player_key": "123456789",
+            "nickname": "Chins",
+            "key": "123456789",
         }
 
         request = self.factory.post(reverse('session_create'), data=json.dumps(data), content_type='json')
@@ -116,7 +116,7 @@ class SessionCreateTests(TestCase):
     def test_session_create_failure_missing_data(self):
         data = {
             "game_name": "waterloo",
-            "player_key": "123456789",
+            "key": "123456789",
         }
 
         request = self.factory.post(reverse('session_create'), data=json.dumps(data), content_type='json')
@@ -126,8 +126,8 @@ class SessionCreateTests(TestCase):
     def test_session_create_success_with_variant(self):
         data = {
             "game_name": "waterloo",
-            "player_nickname": "Chins",
-            "player_key": "123456789",
+            "nickname": "Chins",
+            "key": "123456789",
             "variant_name": "solo",
         }
 
@@ -141,8 +141,8 @@ class SessionCreateTests(TestCase):
     def test_session_create_failure_unknown_game(self):
         data = {
             "game_name": "some game",
-            "player_nickname": "Chins",
-            "player_key": "123456789",
+            "nickname": "Chins",
+            "key": "123456789",
         }
 
         request = self.factory.post(reverse('session_create'), data=json.dumps(data), content_type='json')
@@ -152,8 +152,8 @@ class SessionCreateTests(TestCase):
     def test_session_create_failure_unknown_variant(self):
         data = {
             "game_name": "some game",
-            "player_nickname": "Chins",
-            "player_key": "123456789",
+            "nickname": "Chins",
+            "key": "123456789",
             "variant": "unknown"
         }
 
@@ -177,8 +177,8 @@ class SessionCreateTests(TestCase):
 
         data = {
             "game_name": "waterloo",
-            "player_nickname": "Chins",
-            "player_key": "123456789",
+            "nickname": "Chins",
+            "key": "123456789",
         }
 
         request = self.factory.post(reverse('session_create'), data=json.dumps(data), content_type='json')
@@ -269,7 +269,7 @@ class SessionListTests(TestCase):
 
     def test_session_list_success(self):
         data = {
-            "requested_games": ['waterloo'],
+            "game_name_list": ['waterloo'],
         }
 
         request = self.factory.post(reverse('session_get'), data=json.dumps(data), content_type='json')
@@ -288,7 +288,7 @@ class SessionListTests(TestCase):
 
     def test_session_list_empty(self):
         data = {
-            "requested_games": ['diplomacy'],
+            "game_name_list": ['diplomacy'],
         }
 
         request = self.factory.post(reverse('session_get'), data=json.dumps(data), content_type='json')

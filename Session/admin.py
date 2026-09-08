@@ -18,6 +18,9 @@ class SessionAdmin(admin.ModelAdmin):
         'key',
         'game',
         'code',
+        'variant_name',
+        'max_players',
+        'max_watchers',
         "game_json",
         "active",
     )
