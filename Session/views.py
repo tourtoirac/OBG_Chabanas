@@ -37,9 +37,11 @@ def session_create(request) -> HttpResponse:
     if not isinstance(data, dict):
         return data
 
+    logger.debug(f"Creating session with data {data}")
+
     game_name = data['game_name']
     nickname = data['nickname']
-    key = data['key']
+    key = data.get('key', "")
     variant_name = data.get('variant_name', 'default')
 
     game = get_object_or_404(Game, name=game_name)
@@ -111,12 +113,10 @@ def session_get(request) -> HttpResponse:
         return data
 
     session_code = data['session_code']
-    logger.debug(f"Searching for session with code {session_code}")
+    sat_list = data.get('sat_list', None)
     session = get_object_or_404(Session, code=session_code, active=True)
-    logger.debug(f"Session found with code {session_code}")
-
     data = {
-        'session': return_session_json(session, sat_list=['game_json'])
+        'session': return_session_json(session, sat_list=sat_list)
     }
     return JsonResponse(status=200, data=data)
 
