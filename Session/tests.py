@@ -328,14 +328,13 @@ class SessionJoinTests(TestCase):
 
     def test_session_join_success_owner(self):
         data = {
-            "code": 'code',
+            "session_code": 'code',
             "nickname": "P1",
             "key": "K1",
         }
         request = self.factory.post(reverse('session_join'), data=json.dumps(data), content_type='json')
         response = session_join(request)
         self.assertEqual(response.status_code, 200)
-        response_content = json.loads(response.content)
 
     def test_session_join_failure_missing_data(self):
         data = {
@@ -347,15 +346,13 @@ class SessionJoinTests(TestCase):
 
     def test_session_join_new_user(self):
         data = {
-            "code": 'code',
+            "session_code": 'code',
             "nickname": "P2",
             "key": "K2",
         }
         request = self.factory.post(reverse('session_join'), data=json.dumps(data), content_type='json')
         response = session_join(request)
         self.assertEqual(response.status_code, 200)
-        response_content = json.loads(response.content)
-        print(response_content)
 
     def test_session_join_failure_game_full(self):
         Player.objects.create(
@@ -365,7 +362,7 @@ class SessionJoinTests(TestCase):
             owner=False,
         )
         data = {
-            "code": 'code',
+            "session_code": 'code',
             "nickname": "P3",
             "key": "K3",
         }
@@ -381,7 +378,7 @@ class SessionJoinTests(TestCase):
             owner=False,
         )
         data = {
-            "code": 'code',
+            "session_code": 'code',
             "nickname": "P1",
             "key": "k?",
         }

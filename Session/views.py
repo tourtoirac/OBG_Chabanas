@@ -185,7 +185,7 @@ def session_join(request) -> HttpResponse:
     :rtype: HttpResponse
     """
     requested_values = [
-        "code",
+        "session_code",
         "nickname",
         "key",
     ]
@@ -196,7 +196,7 @@ def session_join(request) -> HttpResponse:
     nickname = data['nickname']
     key = data['key']
 
-    session = get_object_or_404(Session, code=data['code'])
+    session = get_object_or_404(Session, code=data['session_code'])
 
     players_dict = {}
     session_players = Player.objects.filter(session=session)
