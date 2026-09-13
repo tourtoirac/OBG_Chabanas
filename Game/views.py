@@ -28,7 +28,7 @@ def game_list(request) -> HttpResponse:
         return data
     game_name_list = data['game_name_list']
 
-    games = Game.objects.filter(name__in=game_name_list)
+    games = Game.objects.filter(name__in=game_name_list).prefetch_related("variant_set")
     game_list = []
     for game in games:
         game_list.append(return_game_json(game))

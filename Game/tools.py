@@ -1,4 +1,4 @@
-from Game.models import Game, Variant
+from Game.models import Game
 
 
 def return_game_json(game: Game):
@@ -16,15 +16,14 @@ def return_game_json(game: Game):
             }
         }
     }
-    variant = Variant.objects.filter(game=game, active=True)
-    if variant.exists():
-        for variant in variant:
-            game_data['variant'][variant.name] = {
-                "key": variant.key,
-                "name": variant.name,
-                "active": variant.active,
-                "max_players": variant.max_players,
-                "max_watchers": variant.max_watchers,
-            }
+    variants = [variant for variant in game.variant_set.all() if variant.active]
+    for variant in variants:
+        game_data['variant'][variant.name] = {
+            "key": variant.key,
+            "name": variant.name,
+            "active": variant.active,
+            "max_players": variant.max_players,
+            "max_watchers": variant.max_watchers,
+        }
 
     return game_data

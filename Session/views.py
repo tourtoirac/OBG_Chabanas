@@ -148,14 +148,25 @@ def session_list(request) -> HttpResponse:
         )
     ).update(active=False, code='')
 
-    active_games = {}
-    game_names = Game.objects.filter(active=True).values_list('name', flat=True)
-    for name in game_names:
-        if name in game_name_list:
-            active_games[name] = []
-            sessions = Session.objects.filter(game__name=name, active=True)
-            for session in sessions:
-                active_games[name].append(return_session_json(session, sat_list=sat_list))
+    active_game_names = set(
+        Game.objects.filter(active=True).values_list('name', flat=True)
+    )
+    requested_games = [name for name in game_name_list if name in active_game_names]
+
+    sessions = (
+        Session.objects.filter(
+            game__name__in=requested_games,
+            active=True,
+        )
+        .select_related("game")
+        .prefetch_related("player_set")
+    )
+
+    active_games = {name: [] for name in requested_games}
+    for session in sessions:
+        active_games[session.game.name].append(
+            return_session_json(session, sat_list=sat_list)
+        )
 
     data = {
         "sessions": active_games

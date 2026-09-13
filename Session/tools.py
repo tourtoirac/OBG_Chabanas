@@ -27,10 +27,10 @@ def return_session_json(session: Session, sat_list=None):
     """
     if sat_list is None:
         sat_list=['game_json']
-    player_list = []
-    players = Player.objects.filter(session=session)
-    for player in players:
-        player_list.append(return_player_json(player, include_key=False))
+    player_list = [
+        return_player_json(player, include_key=False)
+        for player in session.player_set.all()
+    ]
 
     data = {
         "name": session.game.name,
