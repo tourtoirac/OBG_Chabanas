@@ -11,7 +11,6 @@ from Chabanas.tools import validate_request
 from Game.models import Game, Variant
 from Session.tools import (
     generate_session_code,
-    is_session_participant,
     return_session_json,
 )
 from Session.models import Session, Player

@@ -41,6 +41,11 @@ def return_session_json(session: Session, sat_list=None):
         "variant": session.variant_name,
     }
     if 'game_json' in sat_list:
+        game_json = session.game_json
+        game_json['game'] = {
+            "max_players": session.max_players,
+            "max_watchers": session.max_watchers,
+        }
         data['game_json'] = session.game_json
     return data
 
