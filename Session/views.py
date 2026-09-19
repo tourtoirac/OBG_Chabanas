@@ -42,6 +42,8 @@ def session_create(request) -> HttpResponse:
     nickname = data['nickname']
     key = data.get('key', "")
     variant_name = data.get('variant_name', 'default')
+    allows_watchers = data.get('allows_watchers', True)
+    access_key = data.get('access_key', '')
 
     game = get_object_or_404(Game, name=game_name)
     variant = None
@@ -78,9 +80,11 @@ def session_create(request) -> HttpResponse:
         code=game_code,
         game_json=game_json,
         active=True,
+        access_key=key,
         variant_name=variant_name,
         max_players=session_max_players,
         max_watchers=session_max_watchers,
+        allows_watchers=allows_watchers,
     )
     Player.objects.create(
         session=session,
@@ -194,8 +198,12 @@ def session_join(request) -> HttpResponse:
 
     nickname = data['nickname']
     key = data['key']
+    access_key = data.get('access_key', '')
 
     session = get_object_or_404(Session, code=data['session_code'])
+
+    if access_key != session.access_key:
+        return HttpResponse(status = 401, content=UNAUTHORIZED)
 
     players_dict = {}
     session_players = Player.objects.filter(session=session)
@@ -234,7 +242,9 @@ def session_get_archive(request) -> HttpResponse:
     data = validate_request(request, requested_values)
     if not isinstance(data, dict):
         return data
+
     session = get_object_or_404(Session, key=data['key'], active=False)
+
     return JsonResponse(status = 200, data=return_session_json(session, sat_list=['game_json']))
 
 

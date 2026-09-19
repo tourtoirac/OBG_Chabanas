@@ -10,6 +10,8 @@ class Session(models.Model):
     variant_name = models.CharField(max_length=64, null=False, blank=False, unique=False, default='default')
     max_players = models.IntegerField(null=False, blank=False, default=2)
     max_watchers = models.IntegerField(null=False, blank=False, default=10)
+    allows_watchers = models.BooleanField(null=False, blank=False, default=True)
+    access_key = models.CharField(max_length=64, blank=True, unique=False, default='')
     game_json = models.JSONField(null=False, blank=False, default=dict)
     active = models.BooleanField(null=False, blank=False, default=True)
     created_at = models.DateTimeField(auto_now_add=True)

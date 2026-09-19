@@ -39,6 +39,8 @@ def return_session_json(session: Session, sat_list=None):
         "players" : player_list,
         "active": session.active,
         "variant": session.variant_name,
+        "access_key": session.access_key,
+        "allows_watchers": session.allows_watchers,
     }
     if 'game_json' in sat_list:
         game_json = session.game_json

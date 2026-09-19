@@ -18,7 +18,9 @@ class SessionAdmin(admin.ModelAdmin):
         'key',
         'game',
         'code',
+        'access_key',
         'variant_name',
+        'allows_watchers',
         'max_players',
         'max_watchers',
         "game_json",
@@ -45,9 +47,6 @@ class PlayerAdmin(admin.ModelAdmin):
         'session',
         'nickname',
         'key',
-    )
-    readonly_fields = (
-        "key",
     )
     list_display = (
         "session",

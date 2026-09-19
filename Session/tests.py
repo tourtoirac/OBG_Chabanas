@@ -20,7 +20,8 @@ class SessionModelTest(TestCase):
         game = Game.objects.create(name="Test Game")
         session = Session.objects.create(
             game=game,
-            active=True
+            active=True,
+            access_key='test_key'
         )
         self.assertEqual(session.game.name, "Test Game")
         self.assertTrue(session.active)
@@ -31,16 +32,15 @@ class PlayerModelTest(TestCase):
         game = Game.objects.create(name="Test Game")
         session = Session.objects.create(
             game=game,
-            active=True
+            active=True,
+            access_key='test_key'
         )
         player = Player.objects.create(
             session=session,
             nickname="Player1",
-            key="123456789",
             owner=True,
         )
         self.assertEqual(player.nickname, "Player1")
-        self.assertEqual(player.key, "123456789")
         self.assertTrue(player.owner)
 
 class ToolTest(TestCase):
@@ -59,22 +59,22 @@ class ToolTest(TestCase):
         Player.objects.create(
             session=session,
             nickname="P1",
-            key="K1",
+            key="",
             owner=True,
         )
         Player.objects.create(
             session=session,
             nickname="P2",
-            key="K2",
+            key="",
             owner=False,
         )
 
         # Cas : Participant 1
-        self.assertTrue(is_session_participant(session, "P1", "K1"))
+        self.assertTrue(is_session_participant(session, "P1", ""))
         # Cas : Participant 2
-        self.assertTrue(is_session_participant(session, "P2", "K2"))
+        self.assertTrue(is_session_participant(session, "P2", ""))
         # Cas : Non participant
-        self.assertFalse(is_session_participant(session, "Stranger", "K3"))
+        self.assertFalse(is_session_participant(session, "Stranger", ""))
 
 class SessionCreateTests(TestCase):
 
@@ -221,7 +221,7 @@ class SessionGetTests(TestCase):
         response = session_get(request)
         self.assertEqual(response.status_code, 200)
         response_content = json.loads(response.content)
-        self.assertEqual(response_content["session"]['game_json'], {"waterloo": "json"})
+        self.assertEqual(response_content["session"]['game_json'], {'game': {'max_players': 2, 'max_watchers': 10}, 'waterloo': 'json'})
 
     def test_session_get_failure_missing_data(self):
         data = {
@@ -313,8 +313,18 @@ class SessionJoinTests(TestCase):
         )
         self.session = Session.objects.create(
             game=self.game,
-            code='code',
+            code='code1',
             max_players=2,
+            access_key="SK1",
+            game_json={
+                "waterloo": "json",
+            }
+        )
+        self.session2 = Session.objects.create(
+            game=self.game,
+            code='code2',
+            max_players=2,
+            access_key="",
             game_json={
                 "waterloo": "json",
             }
@@ -322,15 +332,55 @@ class SessionJoinTests(TestCase):
         Player.objects.create(
             session=self.session,
             nickname="P1",
-            key="K1",
+            key="PK1",
+            owner=True,
+        )
+        Player.objects.create(
+            session=self.session2,
+            nickname="P2",
+            key="PK2",
             owner=True,
         )
 
-    def test_session_join_success_owner(self):
+    def test_session_join_success_owner_with_access_key(self):
         data = {
-            "session_code": 'code',
+            "session_code": 'code1',
             "nickname": "P1",
-            "key": "K1",
+            "key": "PK1",
+            "access_key": "SK1"
+        }
+        request = self.factory.post(reverse('session_join'), data=json.dumps(data), content_type='json')
+        response = session_join(request)
+        self.assertEqual(response.status_code, 200)
+
+    def test_session_join_failure_incorrect_access_key(self):
+        data = {
+            "session_code": 'code1',
+            "nickname": "P1",
+            "key": "PK1",
+            "access_key": "SK3"
+        }
+        request = self.factory.post(reverse('session_join'), data=json.dumps(data), content_type='json')
+        response = session_join(request)
+        self.assertEqual(response.status_code, 401)
+
+    def test_session_join_failure_incorrect_player_key(self):
+        data = {
+            "session_code": 'code1',
+            "nickname": "P1",
+            "key": "PKX",
+            "access_key": "SK1"
+        }
+        request = self.factory.post(reverse('session_join'), data=json.dumps(data), content_type='json')
+        response = session_join(request)
+        self.assertEqual(response.status_code, 401)
+
+    def test_session_join_success_owner_with_empty_access_key(self):
+        data = {
+            "session_code": 'code2',
+            "nickname": "P2",
+            "key": "PK2",
+            "access_key": ""
         }
         request = self.factory.post(reverse('session_join'), data=json.dumps(data), content_type='json')
         response = session_join(request)
@@ -346,9 +396,10 @@ class SessionJoinTests(TestCase):
 
     def test_session_join_new_user(self):
         data = {
-            "session_code": 'code',
+            "session_code": 'code1',
             "nickname": "P2",
             "key": "K2",
+            "access_key": "SK1"
         }
         request = self.factory.post(reverse('session_join'), data=json.dumps(data), content_type='json')
         response = session_join(request)
@@ -358,33 +409,18 @@ class SessionJoinTests(TestCase):
         Player.objects.create(
             session=self.session,
             nickname="P2",
-            key="K2",
             owner=False,
         )
         data = {
-            "session_code": 'code',
+            "session_code": 'code1',
             "nickname": "P3",
             "key": "K3",
+            "access_key": "SK1"
         }
         request = self.factory.post(reverse('session_join'), data=json.dumps(data), content_type='json')
         response = session_join(request)
         self.assertEqual(response.status_code, 409)
 
-    def test_session_join_failure_same_nickname_different_key(self):
-        Player.objects.create(
-            session=self.session,
-            nickname="P2",
-            key="K2",
-            owner=False,
-        )
-        data = {
-            "session_code": 'code',
-            "nickname": "P1",
-            "key": "k?",
-        }
-        request = self.factory.post(reverse('session_join'), data=json.dumps(data), content_type='json')
-        response = session_join(request)
-        self.assertEqual(response.status_code, 401)
 
 class SessionGetArchiveTests(TestCase):
 
