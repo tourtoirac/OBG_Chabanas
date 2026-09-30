@@ -200,7 +200,7 @@ def session_join(request) -> HttpResponse:
     key = data['key']
     access_key = data.get('access_key', '')
 
-    session = get_object_or_404(Session, code=data['session_code'])
+    session = get_object_or_404(Session, code=data['session_code'], active=True)
 
     if access_key != session.access_key:
         return HttpResponse(status = 401, content=UNAUTHORIZED)
