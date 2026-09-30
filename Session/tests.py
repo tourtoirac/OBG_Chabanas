@@ -837,6 +837,86 @@ class SessionJoinTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(Player.objects.filter(session=self.session).count(), 1)
 
+    def test_session_join_failure_inactive_session(self):
+        self.session.active = False
+        self.session.save()
+        data = {
+            "session_code": 'code1',
+            "nickname": "P2",
+            "key": "K2",
+            "access_key": "SK1"
+        }
+        request = self.factory.post(reverse('session_join'), data=json.dumps(data), content_type='json')
+        with self.assertRaises(Http404):
+            session_join(request)
+        self.assertEqual(Player.objects.filter(session=self.session).count(), 1)
+
+    def test_session_join_failure_locked_session(self):
+        self.session.locked = True
+        self.session.save()
+        data = {
+            "session_code": 'code1',
+            "nickname": "P2",
+            "key": "K2",
+            "access_key": "SK1"
+        }
+        request = self.factory.post(reverse('session_join'), data=json.dumps(data), content_type='json')
+        response = session_join(request)
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(Player.objects.filter(session=self.session).count(), 1)
+
+    def test_session_join_success_returning_player_on_locked_session(self):
+        self.session.locked = True
+        self.session.save()
+        data = {
+            "session_code": 'code1',
+            "nickname": "P1",
+            "key": "PK1",
+            "access_key": "SK1"
+        }
+        request = self.factory.post(reverse('session_join'), data=json.dumps(data), content_type='json')
+        response = session_join(request)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Player.objects.filter(session=self.session).count(), 1)
+
+    def test_session_join_success_returning_player_when_game_is_full(self):
+        Player.objects.create(
+            session=self.session,
+            nickname="P2",
+            key="K2",
+            owner=False,
+        )
+        data = {
+            "session_code": 'code1',
+            "nickname": "P1",
+            "key": "PK1",
+            "access_key": "SK1"
+        }
+        request = self.factory.post(reverse('session_join'), data=json.dumps(data), content_type='json')
+        response = session_join(request)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Player.objects.filter(session=self.session).count(), 2)
+
+    def test_session_join_success_returning_player_when_locked_and_full(self):
+        self.session.locked = True
+        self.session.save()
+        Player.objects.create(
+            session=self.session,
+            nickname="P2",
+            key="K2",
+            owner=False,
+        )
+        data = {
+            "session_code": 'code1',
+            "nickname": "P1",
+            "key": "PK1",
+            "access_key": "SK1"
+        }
+        request = self.factory.post(reverse('session_join'), data=json.dumps(data), content_type='json')
+        response = session_join(request)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Player.objects.filter(session=self.session).count(), 2)
+
 
 class SessionGetArchiveTests(TestCase):
 

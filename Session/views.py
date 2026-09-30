@@ -216,6 +216,9 @@ def session_join(request) -> HttpResponse:
     if nickname in players_dict:
         return HttpResponse(status = 401, content=UNAUTHORIZED)
 
+    if session.locked:
+        return HttpResponse(status = 409, content="Locked session. No more user can be added")
+
     if len(players_dict) >= session.max_players:
         return HttpResponse(status = 409, content="Game is full")
 
