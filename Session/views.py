@@ -293,7 +293,7 @@ def session_update(request) -> HttpResponse:
     if game_json:
         session.game_json = game_json
         session.save(update_fields=['game_json'])
-    if locked:
+    if locked is not None:
         session.locked = locked
         session.save(update_fields=['locked'])
 

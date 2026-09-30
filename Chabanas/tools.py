@@ -16,6 +16,10 @@ def validate_request(request, mandatory_values):
         logger.exception("Unable to parse request")
         return HttpResponse(BAD_REQUEST, status=400)
 
+    if not isinstance(data, dict):
+        logger.warning("Request body is not a JSON object")
+        return HttpResponse(BAD_REQUEST, status=400)
+
     for value in mandatory_values:
         if value not in data:
             return HttpResponse(BAD_REQUEST, status=400)
