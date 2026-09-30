@@ -300,4 +300,4 @@ def session_update(request) -> HttpResponse:
         session.locked = locked
         session.save(update_fields=['locked'])
 
-    return HttpResponse("Success", status = 200)
+    return JsonResponse({"status": "success"}, status = 200)
