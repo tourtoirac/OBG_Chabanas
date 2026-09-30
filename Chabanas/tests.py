@@ -39,8 +39,34 @@ class ToolTest(TestCase):
         # Test avec un corps de requête qui n'est pas du JSON valide
         request = self.factory.post("/", data="not a valid json", content_type='application/json')
         result = validate_request(request, ["name"])
-        
+
         # Doit retourner une HttpResponse 400
         self.assertIsInstance(result, HttpResponse)
         self.assertEqual(result.status_code, 400)
         self.assertEqual(result.content.decode(), BAD_REQUEST)
+
+    def test_validate_request_rejects_json_array(self):
+        # Un corps JSON valide mais qui n'est pas un objet ne peut pas contenir les champs attendus
+        request = self.factory.post("/", data=json.dumps(["name"]), content_type='application/json')
+        result = validate_request(request, ["name"])
+
+        self.assertIsInstance(result, HttpResponse)
+        self.assertEqual(result.status_code, 400)
+        self.assertEqual(result.content.decode(), BAD_REQUEST)
+
+    def test_validate_request_ignores_extra_fields(self):
+        data = {
+            "name": "Test Game",
+            "unexpected": "value",
+        }
+        request = self.factory.post("/", data=json.dumps(data), content_type='application/json')
+        result = validate_request(request, ["name"])
+
+        self.assertEqual(result, data)
+
+    def test_validate_request_empty_mandatory_list(self):
+        data = {}
+        request = self.factory.post("/", data=json.dumps(data), content_type='application/json')
+        result = validate_request(request, [])
+
+        self.assertEqual(result, {})
