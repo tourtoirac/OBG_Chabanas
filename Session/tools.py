@@ -26,9 +26,14 @@ def return_session_json(session: Session, sat_list=None):
     :return: 
     """
     if sat_list is None:
-        sat_list=['game_json']
+        sat_list=[]
+
+    player_sat_list = []
+    if 'player_key' in sat_list:
+        player_sat_list = ['key']
+
     player_list = [
-        return_player_json(player, include_key=False)
+        return_player_json(player, sat_list=player_sat_list)
         for player in session.player_set.all()
     ]
 
@@ -55,11 +60,14 @@ def return_session_json(session: Session, sat_list=None):
 def is_session_participant(session: Session, nickname: str, key: str) -> bool:
     return Player.objects.filter(session=session, nickname=nickname, key=key).exists()
 
-def return_player_json(player: Player, include_key=False):
+def return_player_json(player: Player, sat_list=None):
+    if sat_list is None:
+        sat_list=[]
+
     player_data = {
         "nickname": player.nickname,
         "owner": player.owner,
     }
-    if include_key:
+    if 'key' in sat_list:
         player_data['key'] = player.key
     return player_data

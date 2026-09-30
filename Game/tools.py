@@ -10,6 +10,7 @@ def return_game_json(game: Game):
             "default": {
                 "key": game.key,
                 "name": "default",
+                "min_players": game.min_players,
                 "max_players": game.max_players,
                 "max_watchers": game.max_watchers,
 
@@ -22,6 +23,7 @@ def return_game_json(game: Game):
             "key": variant.key,
             "name": variant.name,
             "active": variant.active,
+            "min_players": variant.min_players,
             "max_players": variant.max_players,
             "max_watchers": variant.max_watchers,
         }

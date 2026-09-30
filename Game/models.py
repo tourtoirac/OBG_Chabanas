@@ -5,6 +5,7 @@ from django.db import models
 class Game(models.Model):
     key = models.UUIDField(null=False, blank=False, editable=False, unique=True, default=uuid.uuid1)
     name = models.CharField(max_length=64, null=False, blank=False, unique=True)
+    min_players = models.IntegerField(null=False, blank=False, default=0)
     max_players = models.IntegerField(null=False, blank=False, default=2)
     max_watchers = models.IntegerField(null=False, blank=False, default=10)
     max_sessions = models.IntegerField(null=False, blank=False, default=10)
@@ -30,6 +31,7 @@ class Variant(models.Model):
     key = models.UUIDField(null=False, blank=False, editable=False, unique=True, default=uuid.uuid1)
     game = models.ForeignKey(Game, on_delete=models.CASCADE)
     name = models.CharField(max_length=64, null=False, blank=False, unique=False)
+    min_players = models.IntegerField(null=False, blank=False, default=0)
     max_players = models.IntegerField(null=False, blank=False, default=2)
     max_watchers = models.IntegerField(null=False, blank=False, default=10)
     game_json = models.JSONField(null=False, blank=False, default=dict)

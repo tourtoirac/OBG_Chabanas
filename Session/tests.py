@@ -215,6 +215,7 @@ class SessionGetTests(TestCase):
     def test_session_get_success(self):
         data = {
             "session_code": self.session.code,
+            "sat_list": ["game_json"]
         }
 
         request = self.factory.post(reverse('session_get'), data=json.dumps(data), content_type='json')
@@ -222,6 +223,30 @@ class SessionGetTests(TestCase):
         self.assertEqual(response.status_code, 200)
         response_content = json.loads(response.content)
         self.assertEqual(response_content["session"]['game_json'], {'game': {'max_players': 2, 'max_watchers': 10}, 'waterloo': 'json'})
+
+    def test_session_get_success_with_players_key(self):
+        data = {
+            "session_code": self.session.code,
+            "sat_list": ["game_json", "player_key"]
+        }
+
+        request = self.factory.post(reverse('session_get'), data=json.dumps(data), content_type='json')
+        response = session_get(request)
+        self.assertEqual(response.status_code, 200)
+        response_content = json.loads(response.content)
+        self.assertEqual(response_content["session"]['players'][0]['key'], 'K1')
+
+    def test_session_get_success_without_players_key(self):
+        data = {
+            "session_code": self.session.code,
+            "sat_list": ["game_json"]
+        }
+
+        request = self.factory.post(reverse('session_get'), data=json.dumps(data), content_type='json')
+        response = session_get(request)
+        self.assertEqual(response.status_code, 200)
+        response_content = json.loads(response.content)
+        self.assertFalse('key' in response_content["session"]['players'][0])
 
     def test_session_get_failure_missing_data(self):
         data = {
@@ -588,7 +613,8 @@ class SessionUpdateTests(TestCase):
             game_json={
                 "waterloo": "json",
             },
-            active=True
+            active=True,
+            locked=False,
         )
         Player.objects.create(
             session=self.session,
@@ -597,7 +623,7 @@ class SessionUpdateTests(TestCase):
             owner=True,
         )
 
-    def test_session_update_success(self):
+    def test_session_update_game_json_success(self):
         data = {
             "key": str(self.session.key),
             "game_json": {"waterloo": "new json"}
@@ -609,7 +635,20 @@ class SessionUpdateTests(TestCase):
         self.session.refresh_from_db()
         self.assertEqual(self.session.game_json, {"waterloo": "new json"})
 
+    def test_session_update_locked_success(self):
+        data = {
+            "key": str(self.session.key),
+            "locked": True
+        }
+
+        request = self.factory.post(reverse('session_update'), data=json.dumps(data), content_type='json')
+        response = session_update(request)
+        self.assertEqual(response.status_code, 200)
+        self.session.refresh_from_db()
+        self.assertTrue(self.session.locked)
+
     def test_session_update_failure_missing_data(self):
+
         data = {
         }
 

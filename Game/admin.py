@@ -19,6 +19,7 @@ class GameAdmin(admin.ModelAdmin):
     fields = (
         'key',
         'name',
+        'min_players',
         'max_players',
         'max_watchers',
         'max_sessions',
@@ -49,6 +50,7 @@ class VariantAdmin(admin.ModelAdmin):
         'key',
         'game',
         'name',
+        'min_players',
         'max_players',
         'max_watchers',
         "game_json",

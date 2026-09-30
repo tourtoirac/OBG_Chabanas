@@ -21,9 +21,11 @@ class SessionAdmin(admin.ModelAdmin):
         'access_key',
         'variant_name',
         'allows_watchers',
+        'min_players',
         'max_players',
         'max_watchers',
         "game_json",
+        "locked",
         "active",
     )
     readonly_fields = (

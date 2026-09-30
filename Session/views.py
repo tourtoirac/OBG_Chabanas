@@ -30,7 +30,6 @@ def session_create(request) -> HttpResponse:
     requested_values = [
         "game_name",
         "nickname",
-        "key",
     ]
     data = validate_request(request, requested_values)
     if not isinstance(data, dict):
@@ -80,11 +79,12 @@ def session_create(request) -> HttpResponse:
         code=game_code,
         game_json=game_json,
         active=True,
-        access_key=key,
+        access_key=access_key,
         variant_name=variant_name,
         max_players=session_max_players,
         max_watchers=session_max_watchers,
         allows_watchers=allows_watchers,
+        locked=False,
     )
     Player.objects.create(
         session=session,
@@ -280,17 +280,21 @@ def session_update(request) -> HttpResponse:
     """
     requested_values = [
         "key",
-        "game_json"
     ]
     data = validate_request(request, requested_values)
     if not isinstance(data, dict):
         return data
 
     session_key = data['key']
-    game_json = data['game_json']
+    game_json = data.get('game_json', None)
+    locked = data.get('locked', None)
 
     session = get_object_or_404(Session, key=session_key, active=True)
-    session.game_json = game_json
-    session.save()
+    if game_json:
+        session.game_json = game_json
+        session.save(update_fields=['game_json'])
+    if locked:
+        session.locked = locked
+        session.save(update_fields=['locked'])
 
     return HttpResponse("Success", status = 200)
