@@ -1237,6 +1237,61 @@ class SessionArchiveTests(TestCase):
         with self.assertRaises(Http404):
             session_archive(request)
 
+    def test_session_archive_keeps_the_players(self):
+        """
+        Archiving a game does not unseat anybody: the players stay attached to
+        the session, so the archived game still tells who was at the table.
+        """
+        Player.objects.create(
+            session=self.session,
+            nickname="P2",
+            key="K2",
+            owner=False,
+        )
+        data = {
+            "key": str(self.session.key),
+        }
+
+        request = self.factory.post(reverse('session_archive'), data=json.dumps(data), content_type='json')
+        self.assertEqual(session_archive(request).status_code, 200)
+
+        self.assertEqual(
+            sorted(player.nickname for player in Player.objects.filter(session=self.session)),
+            ["P1", "P2"],
+        )
+
+    def test_an_archived_session_still_lists_its_players(self):
+        data = {"key": str(self.session.key)}
+        request = self.factory.post(reverse('session_archive'), data=json.dumps(data), content_type='json')
+        session_archive(request)
+
+        request = self.factory.post(reverse('session_get_archive'), data=json.dumps(data), content_type='json')
+        response = session_get_archive(request)
+
+        self.assertEqual(response.status_code, 200)
+        content = json.loads(response.content)
+        self.assertFalse(content["active"])
+        self.assertEqual(
+            content["players"],
+            [{"nickname": "P1", "owner": True}],
+        )
+
+    def test_an_archived_session_can_no_longer_be_joined(self):
+        data = {"key": str(self.session.key)}
+        request = self.factory.post(reverse('session_archive'), data=json.dumps(data), content_type='json')
+        session_archive(request)
+        self.session.refresh_from_db()
+
+        request = self.factory.post(reverse('session_join'), data=json.dumps({
+            "session_code": self.session.code,
+            "nickname": "P2",
+            "key": "",
+            "access_key": self.session.access_key,
+        }), content_type='json')
+
+        with self.assertRaises(Http404):
+            session_join(request)
+
     def test_session_archive_failure_inactive_session_key(self):
         active_session = Session.objects.create(
             game=self.game,
@@ -1253,6 +1308,7 @@ class SessionArchiveTests(TestCase):
         request = self.factory.post(reverse('session_archive'), data=json.dumps(data), content_type='json')
         with self.assertRaises(Http404):
             session_archive(request)
+
 
 class SessionUpdateTests(TestCase):
 
