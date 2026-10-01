@@ -6,7 +6,7 @@ from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
-from Chabanas.params_ext import PARAMS_EXT, UNAUTHORIZED
+from Chabanas.params_ext import BAD_REQUEST, FORBIDDEN, PARAMS_EXT, UNAUTHORIZED
 from Chabanas.tools import validate_request
 from Game.models import Game, Variant
 from Session.tools import (
@@ -181,7 +181,12 @@ def session_list(request) -> HttpResponse:
 @require_http_methods(["POST"])
 def session_join(request) -> HttpResponse:
     """
-    Allows a user to join an active session
+    Allows a user to join an active session.
+
+    A watcher (role="watcher") is only allowed to watch: it gives a nickname, no
+    key, and no row is written to session_players. Spectators are therefore not
+    persisted here and never consume a player seat. Counting them is the game
+    server's job (Raffaillac/Tourtoirac), which holds the live connections.
     :param request: Request information
     :type request: Http request
     :return: HTTP response code
@@ -190,20 +195,34 @@ def session_join(request) -> HttpResponse:
     requested_values = [
         "session_code",
         "nickname",
-        "key",
     ]
     data = validate_request(request, requested_values)
     if not isinstance(data, dict):
         return data
 
+    role = data.get('role', 'player')
+    if role not in ('player', 'watcher'):
+        return HttpResponse(status=400, content=BAD_REQUEST)
+    if role == 'player' and 'key' not in data:
+        return HttpResponse(status=400, content=BAD_REQUEST)
+
     nickname = data['nickname']
-    key = data['key']
+    key = data.get('key', '')
     access_key = data.get('access_key', '')
 
     session = get_object_or_404(Session, code=data['session_code'], active=True)
 
     if access_key != session.access_key:
         return HttpResponse(status = 401, content=UNAUTHORIZED)
+
+    if role == 'watcher':
+        if not session.allows_watchers:
+            return HttpResponse(status=403, content=FORBIDDEN)
+        # a locked session closes the table: nobody new comes in, spectator
+        # included
+        if session.locked:
+            return HttpResponse(status=409, content="Locked session. No more user can be added")
+        return JsonResponse(status=200, data=return_session_json(session, sat_list=['game_json']))
 
     players_dict = {}
     session_players = Player.objects.filter(session=session)

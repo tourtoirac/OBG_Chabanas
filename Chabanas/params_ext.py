@@ -27,6 +27,7 @@ PARAMS_EXT = {
 }
 
 BAD_REQUEST = "Bad Request"
+FORBIDDEN = "Forbidden"
 FORBIDDEN_METHOD = "Forbidden method"
 CONFLICT = "Conflict"
 UNAUTHORIZED = "Unauthorized"

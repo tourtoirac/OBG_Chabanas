@@ -787,9 +787,150 @@ class SessionJoinTests(TestCase):
             "key": "K2",
             "access_key": ""
         }
+
         request = self.factory.post(reverse('session_join'), data=json.dumps(data), content_type='json')
         with self.assertRaises(Http404):
             session_join(request)
+
+    def test_session_join_failure_player_without_key(self):
+        data = {
+            "session_code": 'code1',
+            "nickname": "P2",
+            "access_key": "SK1",
+        }
+
+        request = self.factory.post(reverse('session_join'), data=json.dumps(data), content_type='json')
+        response = session_join(request)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Player.objects.filter(session=self.session).count(), 1)
+
+    def test_session_join_failure_unknown_role(self):
+        data = {
+            "session_code": 'code1',
+            "nickname": "P2",
+            "key": "K2",
+            "role": "admin",
+            "access_key": "SK1",
+        }
+
+        request = self.factory.post(reverse('session_join'), data=json.dumps(data), content_type='json')
+        response = session_join(request)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Player.objects.filter(session=self.session).count(), 1)
+
+    def test_session_join_watcher_without_key(self):
+        """
+        A spectator only gives a nickname: no key, and no row in session_players.
+        """
+        data = {
+            "session_code": 'code1',
+            "nickname": "S1",
+            "role": "watcher",
+            "access_key": "SK1",
+        }
+
+        request = self.factory.post(reverse('session_join'), data=json.dumps(data), content_type='json')
+        response = session_join(request)
+
+        self.assertEqual(response.status_code, 200)
+        response_content = json.loads(response.content)
+        self.assertEqual(
+            response_content['game_json'],
+            {'game': {'max_players': 2, 'max_watchers': 10}, 'waterloo': 'json'},
+        )
+        self.assertEqual(Player.objects.filter(session=self.session).count(), 1, (
+            "un spectateur ne doit pas etre enregistre en base"
+        ))
+        self.assertFalse(
+            Player.objects.filter(session=self.session, nickname="S1").exists()
+        )
+
+    def test_session_join_watcher_does_not_consume_a_player_seat(self):
+        Player.objects.create(
+            session=self.session,
+            nickname="P2",
+            key="K2",
+            owner=False,
+        )
+        self.assertEqual(
+            len(Player.objects.filter(session=self.session)), self.session.max_players
+        )
+
+        data = {
+            "session_code": 'code1',
+            "nickname": "S1",
+            "role": "watcher",
+            "access_key": "SK1",
+        }
+
+        request = self.factory.post(reverse('session_join'), data=json.dumps(data), content_type='json')
+        response = session_join(request)
+
+        self.assertEqual(response.status_code, 200, (
+            "un spectateur doit pouvoir arriver sur une partie complete"
+        ))
+        self.assertEqual(Player.objects.filter(session=self.session).count(), 2)
+
+    def test_session_join_watcher_failure_incorrect_access_key(self):
+        data = {
+            "session_code": 'code1',
+            "nickname": "S1",
+            "role": "watcher",
+            "access_key": "SK3",
+        }
+
+        request = self.factory.post(reverse('session_join'), data=json.dumps(data), content_type='json')
+        response = session_join(request)
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(Player.objects.filter(session=self.session).count(), 1)
+
+    def test_session_join_watcher_failure_watchers_not_allowed(self):
+        self.session.allows_watchers = False
+        self.session.save()
+        data = {
+            "session_code": 'code1',
+            "nickname": "S1",
+            "role": "watcher",
+            "access_key": "SK1",
+        }
+
+        request = self.factory.post(reverse('session_join'), data=json.dumps(data), content_type='json')
+        response = session_join(request)
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(Player.objects.filter(session=self.session).count(), 1)
+
+    def test_session_join_watcher_failure_locked_session(self):
+        self.session.locked = True
+        self.session.save()
+        data = {
+            "session_code": 'code1',
+            "nickname": "S1",
+            "role": "watcher",
+            "access_key": "SK1",
+        }
+
+        request = self.factory.post(reverse('session_join'), data=json.dumps(data), content_type='json')
+        response = session_join(request)
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(Player.objects.filter(session=self.session).count(), 1)
+
+    def test_session_join_watcher_nickname_does_not_block_a_later_player(self):
+        """
+        A spectator nickname is never stored, so it cannot collide with the
+        nickname a player will choose.
+        """
+        data = {
+            "session_code": 'code1',
+            "nickname": "P2",
+            "key": "K2",
+            "access_key": "SK1",
+        }
+        request = self.factory.post(reverse('session_join'), data=json.dumps(data), content_type='json')
+        self.assertEqual(session_join(request).status_code, 200)
+        self.assertEqual(Player.objects.get(session=self.session, nickname="P2").key, "K2")
 
     def test_session_join_new_user_is_added_as_non_owner(self):
         data = {
