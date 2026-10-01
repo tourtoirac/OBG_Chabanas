@@ -183,6 +183,10 @@ def session_join(request) -> HttpResponse:
     """
     Allows a user to join an active session.
 
+    The user key is optional: without one the player simply gets a new seat,
+    with one they get back the seat that already carries that key for that
+    nickname. A wrong key for a known nickname is refused.
+
     A watcher (role="watcher") is only allowed to watch: it gives a nickname, no
     key, and no row is written to session_players. Spectators are therefore not
     persisted here and never consume a player seat. Counting them is the game
@@ -202,8 +206,6 @@ def session_join(request) -> HttpResponse:
 
     role = data.get('role', 'player')
     if role not in ('player', 'watcher'):
-        return HttpResponse(status=400, content=BAD_REQUEST)
-    if role == 'player' and 'key' not in data:
         return HttpResponse(status=400, content=BAD_REQUEST)
 
     nickname = data['nickname']
@@ -227,7 +229,9 @@ def session_join(request) -> HttpResponse:
     players_dict = {}
     session_players = Player.objects.filter(session=session)
     for session_player in session_players:
-        players_dict[session_player.nickname] = session_player.key
+        # une ancienne ligne peut porter NULL : la clé vide est une clé valide,
+        # elle doit se comparer comme telle
+        players_dict[session_player.nickname] = session_player.key or ''
 
     if nickname in players_dict and players_dict[nickname] == key:
         return JsonResponse(status = 200, data=return_session_json(session, sat_list=['game_json']))

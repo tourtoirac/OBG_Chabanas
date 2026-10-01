@@ -792,7 +792,11 @@ class SessionJoinTests(TestCase):
         with self.assertRaises(Http404):
             session_join(request)
 
-    def test_session_join_failure_player_without_key(self):
+    def test_session_join_success_player_without_key(self):
+        """
+        The user key is optional: a player joins without one and simply gets a
+        new seat, stored with an empty key.
+        """
         data = {
             "session_code": 'code1',
             "nickname": "P2",
@@ -801,8 +805,53 @@ class SessionJoinTests(TestCase):
 
         request = self.factory.post(reverse('session_join'), data=json.dumps(data), content_type='json')
         response = session_join(request)
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(Player.objects.filter(session=self.session).count(), 1)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Player.objects.filter(session=self.session).count(), 2)
+        self.assertEqual(Player.objects.get(session=self.session, nickname="P2").key, '')
+
+    def test_session_join_success_player_without_key_comes_back(self):
+        """
+        Once seated without a key, the same player gets back that seat instead
+        of being refused as an impostor, because the empty key matches.
+        """
+        data = {
+            "session_code": 'code1',
+            "nickname": "P2",
+            "access_key": "SK1",
+        }
+        request = self.factory.post(reverse('session_join'), data=json.dumps(data), content_type='json')
+        self.assertEqual(session_join(request).status_code, 200)
+
+        again = self.factory.post(reverse('session_join'), data=json.dumps(data), content_type='json')
+        self.assertEqual(session_join(again).status_code, 200)
+        self.assertEqual(Player.objects.filter(session=self.session).count(), 2, (
+            "revenir sans clé ne doit pas créer un second siege"
+        ))
+
+    def test_session_join_failure_wrong_key_for_a_known_nickname(self):
+        """
+        A key that does not match the one already stored for that nickname is
+        still refused: an empty key is a valid key, not a wildcard.
+        """
+        Player.objects.create(
+            session=self.session,
+            nickname="P2",
+            key="",
+            owner=False,
+        )
+        data = {
+            "session_code": 'code1',
+            "nickname": "P2",
+            "key": "K9",
+            "access_key": "SK1",
+        }
+
+        request = self.factory.post(reverse('session_join'), data=json.dumps(data), content_type='json')
+        response = session_join(request)
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(Player.objects.get(session=self.session, nickname="P2").key, '')
 
     def test_session_join_failure_unknown_role(self):
         data = {
