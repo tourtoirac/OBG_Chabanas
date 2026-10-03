@@ -1,5 +1,7 @@
 from django.contrib import admin
+from django.db import models
 
+from Game.widgets import PrettyJSONWidget
 from Session.models import Session, Player
 # Register your models here.
 
@@ -42,6 +44,9 @@ class SessionAdmin(admin.ModelAdmin):
         "game",
     )
     inlines = [PlayerInLine]
+    formfield_overrides = {
+        models.JSONField: {"widget": PrettyJSONWidget},
+    }
 
 @admin.register(Player)
 class PlayerAdmin(admin.ModelAdmin):

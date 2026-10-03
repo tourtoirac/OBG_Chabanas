@@ -1,6 +1,8 @@
 from django.contrib import admin
+from django.db import models
 
 from Game.models import Game, Variant
+from Game.widgets import PrettyJSONWidget
 
 class VariantInLine(admin.TabularInline):
     model = Variant
@@ -42,6 +44,10 @@ class GameAdmin(admin.ModelAdmin):
         'active',
     )
     inlines = [VariantInLine]
+    # le game_json passe par le widget lisible de tous les champs JSON
+    formfield_overrides = {
+        models.JSONField: {"widget": PrettyJSONWidget},
+    }
 
 
 @admin.register(Variant)
@@ -71,3 +77,6 @@ class VariantAdmin(admin.ModelAdmin):
         "game",
         "active"
     )
+    formfield_overrides = {
+        models.JSONField: {"widget": PrettyJSONWidget},
+    }

@@ -7,6 +7,28 @@ from django.urls import reverse
 from Game.models import Game, Variant
 from Game.tools import return_game_json
 from Game.views import game_list
+from Game.widgets import PrettyJSONWidget
+
+
+class PrettyJSONWidgetTest(TestCase):
+    def test_format_value_indents_the_json(self):
+        widget = PrettyJSONWidget()
+        rendered = widget.format_value('{"b": 2, "a": 1}')
+        self.assertEqual(json.loads(rendered), {"b": 2, "a": 1})
+        self.assertIn("\n", rendered)
+
+    def test_format_value_keeps_invalid_input_untouched(self):
+        widget = PrettyJSONWidget()
+        self.assertEqual(widget.format_value("{oops"), "{oops")
+
+    def test_format_value_keeps_an_empty_value(self):
+        widget = PrettyJSONWidget()
+        self.assertEqual(widget.format_value(""), "")
+
+    def test_media_loads_the_editor_assets(self):
+        media = str(PrettyJSONWidget().media)
+        self.assertIn("pretty_json.js", media)
+        self.assertIn("pretty_json.css", media)
 
 
 class GameModelTest(TestCase):

@@ -7,3 +7,4 @@ Game/migrations/__pycache__/
 .coverage
 Session/__pycache__/
 Session/migrations/__pycache__/
+__pycache__/
