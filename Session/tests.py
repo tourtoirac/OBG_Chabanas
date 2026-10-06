@@ -347,7 +347,7 @@ class SessionCreateTests(TestCase):
         self.assertEqual(session.code, json_response["session_code"])
         self.assertEqual(len(session.code), 8)
         self.assertTrue(session.active)
-        self.assertFalse(session.locked)
+        self.assertFalse(session.started)
 
     def test_session_create_success_with_session_limits(self):
         data = {
@@ -365,6 +365,21 @@ class SessionCreateTests(TestCase):
         session = Session.objects.get(key=json_response["session_key"])
         self.assertEqual(session.max_players, 3)
         self.assertEqual(session.max_watchers, 4)
+
+    def test_session_create_one_seat_session_is_started(self):
+        data = {
+            "game_name": "waterloo",
+            "nickname": "Chins",
+            "key": "123456789",
+            "session_max_players": 1,
+        }
+
+        request = self.factory.post(reverse('session_create'), data=json.dumps(data), content_type='json')
+        response = session_create(request)
+        self.assertEqual(response.status_code, 201)
+        json_response = json.loads(response.content)
+        session = Session.objects.get(key=json_response["session_key"])
+        self.assertTrue(session.started)
 
     def test_session_create_success_with_access_key_and_no_watchers(self):
         data = {
@@ -950,8 +965,8 @@ class SessionJoinTests(TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertEqual(Player.objects.filter(session=self.session).count(), 1)
 
-    def test_session_join_watcher_failure_locked_session(self):
-        self.session.locked = True
+    def test_session_join_watcher_success_started_session(self):
+        self.session.started = True
         self.session.save()
         data = {
             "session_code": 'code1',
@@ -963,7 +978,7 @@ class SessionJoinTests(TestCase):
         request = self.factory.post(reverse('session_join'), data=json.dumps(data), content_type='json')
         response = session_join(request)
 
-        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.status_code, 200)
         self.assertEqual(Player.objects.filter(session=self.session).count(), 1)
 
     def test_session_join_watcher_nickname_does_not_block_a_later_player(self):
@@ -1041,8 +1056,8 @@ class SessionJoinTests(TestCase):
             session_join(request)
         self.assertEqual(Player.objects.filter(session=self.session).count(), 1)
 
-    def test_session_join_failure_locked_session(self):
-        self.session.locked = True
+    def test_session_join_failure_started_session(self):
+        self.session.started = True
         self.session.save()
         data = {
             "session_code": 'code1',
@@ -1055,8 +1070,8 @@ class SessionJoinTests(TestCase):
         self.assertEqual(response.status_code, 409)
         self.assertEqual(Player.objects.filter(session=self.session).count(), 1)
 
-    def test_session_join_success_returning_player_on_locked_session(self):
-        self.session.locked = True
+    def test_session_join_success_returning_player_on_started_session(self):
+        self.session.started = True
         self.session.save()
         data = {
             "session_code": 'code1',
@@ -1087,8 +1102,8 @@ class SessionJoinTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(Player.objects.filter(session=self.session).count(), 2)
 
-    def test_session_join_success_returning_player_when_locked_and_full(self):
-        self.session.locked = True
+    def test_session_join_success_returning_player_when_started_and_full(self):
+        self.session.started = True
         self.session.save()
         Player.objects.create(
             session=self.session,
@@ -1106,6 +1121,52 @@ class SessionJoinTests(TestCase):
         response = session_join(request)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(Player.objects.filter(session=self.session).count(), 2)
+
+    def test_session_join_last_seat_starts_the_session(self):
+        data = {
+            "session_code": 'code1',
+            "nickname": "P2",
+            "key": "K2",
+            "access_key": "SK1"
+        }
+        request = self.factory.post(reverse('session_join'), data=json.dumps(data), content_type='json')
+        response = session_join(request)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(json.loads(response.content)["started"])
+        self.session.refresh_from_db()
+        self.assertTrue(self.session.started)
+
+    def test_session_join_free_seat_left_does_not_start_the_session(self):
+        self.session.max_players = 3
+        self.session.save()
+        data = {
+            "session_code": 'code1',
+            "nickname": "P2",
+            "key": "K2",
+            "access_key": "SK1"
+        }
+        request = self.factory.post(reverse('session_join'), data=json.dumps(data), content_type='json')
+        response = session_join(request)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(json.loads(response.content)["started"])
+        self.session.refresh_from_db()
+        self.assertFalse(self.session.started)
+
+    def test_session_join_watcher_does_not_start_the_session(self):
+        self.session.max_players = 1
+        self.session.save()
+        Player.objects.filter(session=self.session).delete()
+        data = {
+            "session_code": 'code1',
+            "nickname": "S1",
+            "role": "watcher",
+            "access_key": "SK1",
+        }
+        request = self.factory.post(reverse('session_join'), data=json.dumps(data), content_type='json')
+        response = session_join(request)
+        self.assertEqual(response.status_code, 200)
+        self.session.refresh_from_db()
+        self.assertFalse(self.session.started)
 
 
 class SessionGetArchiveTests(TestCase):
@@ -1331,7 +1392,7 @@ class SessionUpdateTests(TestCase):
                 "waterloo": "json",
             },
             active=True,
-            locked=False,
+            started=False,
         )
         Player.objects.create(
             session=self.session,
@@ -1352,17 +1413,17 @@ class SessionUpdateTests(TestCase):
         self.session.refresh_from_db()
         self.assertEqual(self.session.game_json, {"waterloo": "new json"})
 
-    def test_session_update_locked_success(self):
+    def test_session_update_started_success(self):
         data = {
             "key": str(self.session.key),
-            "locked": True
+            "started": True
         }
 
         request = self.factory.post(reverse('session_update'), data=json.dumps(data), content_type='json')
         response = session_update(request)
         self.assertEqual(response.status_code, 200)
         self.session.refresh_from_db()
-        self.assertTrue(self.session.locked)
+        self.assertTrue(self.session.started)
 
     def test_session_update_failure_missing_data(self):
 
@@ -1401,25 +1462,25 @@ class SessionUpdateTests(TestCase):
         with self.assertRaises(Http404):
             session_update(request)
 
-    def test_session_update_unlock_success(self):
-        self.session.locked = True
+    def test_session_update_failure_cannot_unstart(self):
+        self.session.started = True
         self.session.save()
         data = {
             "key": str(self.session.key),
-            "locked": False
+            "started": False
         }
 
         request = self.factory.post(reverse('session_update'), data=json.dumps(data), content_type='json')
         response = session_update(request)
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 400)
         self.session.refresh_from_db()
-        self.assertFalse(self.session.locked)
+        self.assertTrue(self.session.started)
 
-    def test_session_update_game_json_and_locked(self):
+    def test_session_update_game_json_and_started(self):
         data = {
             "key": str(self.session.key),
             "game_json": {"waterloo": "new json"},
-            "locked": True
+            "started": True
         }
 
         request = self.factory.post(reverse('session_update'), data=json.dumps(data), content_type='json')
@@ -1427,9 +1488,9 @@ class SessionUpdateTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.session.refresh_from_db()
         self.assertEqual(self.session.game_json, {"waterloo": "new json"})
-        self.assertTrue(self.session.locked)
+        self.assertTrue(self.session.started)
 
-    def test_session_update_game_json_keeps_locked_value(self):
+    def test_session_update_game_json_keeps_started_value(self):
         data = {
             "key": str(self.session.key),
             "game_json": {"waterloo": "new json"}
@@ -1439,7 +1500,7 @@ class SessionUpdateTests(TestCase):
         response = session_update(request)
         self.assertEqual(response.status_code, 200)
         self.session.refresh_from_db()
-        self.assertFalse(self.session.locked)
+        self.assertFalse(self.session.started)
 
     def test_session_update_key_only_leaves_session_unchanged(self):
         data = {
@@ -1451,7 +1512,7 @@ class SessionUpdateTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.session.refresh_from_db()
         self.assertEqual(self.session.game_json, {"waterloo": "json"})
-        self.assertFalse(self.session.locked)
+        self.assertFalse(self.session.started)
 
 
 class HttpMethodTests(TestCase):

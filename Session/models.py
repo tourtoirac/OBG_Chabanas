@@ -15,7 +15,7 @@ class Session(models.Model):
     access_key = models.CharField(max_length=64, blank=True, unique=False, default='')
     game_json = models.JSONField(null=False, blank=False, default=dict)
     active = models.BooleanField(null=False, blank=False, default=True)
-    locked = models.BooleanField(null=False, blank=False, default=False)
+    started = models.BooleanField(null=False, blank=False, default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

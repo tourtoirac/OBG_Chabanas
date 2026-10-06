@@ -12,6 +12,7 @@ from Game.models import Game, Variant
 from Session.tools import (
     generate_session_code,
     return_session_json,
+    start_session_if_full,
 )
 from Session.models import Session, Player
 
@@ -84,7 +85,7 @@ def session_create(request) -> HttpResponse:
         max_players=session_max_players,
         max_watchers=session_max_watchers,
         allows_watchers=allows_watchers,
-        locked=False,
+        started=False,
     )
     Player.objects.create(
         session=session,
@@ -92,6 +93,8 @@ def session_create(request) -> HttpResponse:
         key=key,
         owner=True,
     )
+    # a one-seat game is full as soon as it is created
+    start_session_if_full(session)
     data = {
         'session_key': session.key,
         'session_code': session.code,
@@ -220,10 +223,8 @@ def session_join(request) -> HttpResponse:
     if role == 'watcher':
         if not session.allows_watchers:
             return HttpResponse(status=403, content=FORBIDDEN)
-        # a locked session closes the table: nobody new comes in, spectator
-        # included
-        if session.locked:
-            return HttpResponse(status=409, content="Locked session. No more user can be added")
+        # a started session only closes its player seats: spectators may still
+        # come and watch the game being played
         return JsonResponse(status=200, data=return_session_json(session, sat_list=['game_json']))
 
     players_dict = {}
@@ -239,8 +240,10 @@ def session_join(request) -> HttpResponse:
     if nickname in players_dict:
         return HttpResponse(status = 401, content=UNAUTHORIZED)
 
-    if session.locked:
-        return HttpResponse(status = 409, content="Locked session. No more user can be added")
+    # a returning player keeps their seat (handled above); a started session
+    # takes no new player
+    if session.started:
+        return HttpResponse(status = 409, content="Started session. No more player can be added")
 
     if len(players_dict) >= session.max_players:
         return HttpResponse(status = 409, content="Game is full")
@@ -251,6 +254,8 @@ def session_join(request) -> HttpResponse:
         key=key,
         owner=False,
     )
+    # the last free seat starts the game
+    start_session_if_full(session)
     return JsonResponse(status = 200, data=return_session_json(session, sat_list=['game_json']))
 
 
@@ -313,14 +318,19 @@ def session_update(request) -> HttpResponse:
 
     session_key = data['key']
     game_json = data.get('game_json', None)
-    locked = data.get('locked', None)
+    started = data.get('started', None)
+
+    # a session only ever goes from not started to started: there is no way
+    # back once players may have taken components in hand
+    if started is not None and started is not True:
+        return HttpResponse(status=400, content=BAD_REQUEST)
 
     session = get_object_or_404(Session, key=session_key, active=True)
     if game_json:
         session.game_json = game_json
         session.save(update_fields=['game_json'])
-    if locked is not None:
-        session.locked = locked
-        session.save(update_fields=['locked'])
+    if started:
+        session.started = True
+        session.save(update_fields=['started'])
 
     return JsonResponse({"status": "success"}, status = 200)

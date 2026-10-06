@@ -46,6 +46,7 @@ def return_session_json(session: Session, sat_list=None):
         "variant": session.variant_name,
         "access_key": session.access_key,
         "allows_watchers": session.allows_watchers,
+        "started": session.started,
         "max_players": session.max_players,
         "max_watchers": session.max_watchers,
     }
@@ -57,6 +58,17 @@ def return_session_json(session: Session, sat_list=None):
         }
         data['game_json'] = session.game_json
     return data
+
+
+def start_session_if_full(session: Session) -> bool:
+    """
+    Starts the session once every player seat is taken.
+    :return: True when the session is started after the call
+    """
+    if not session.started and session.player_set.count() >= session.max_players:
+        session.started = True
+        session.save(update_fields=['started'])
+    return session.started
 
 
 def is_session_participant(session: Session, nickname: str, key: str) -> bool:
