@@ -56,6 +56,61 @@ Seuls `DB_PASSWORD`, `DB_HOST` et `DB_PORT` viennent de l'environnement. Tout
 le reste (`SECRET_KEY`, `DEBUG`, `ALLOWED_HOSTS`, CORS) est figé dans le code
 — ne pas lire ces valeurs comme si elles étaient configurables par déploiement.
 
+## Carte du code
+
+Le dépôt fait environ 900 lignes hors tests. Deux applications Django :
+`Game` (catalogue) et `Session` (parties).
+
+| Fichier | Contenu |
+| ------- | ------- |
+| `Chabanas/urls.py` | Montage : `admin/`, `game/` → `Game.urls`, `session/` → `Session.urls` |
+| `Chabanas/tools.py` | `validate_request(request, mandatory_values)` : parse le JSON, vérifie les clés, renvoie un `dict` **ou** une `HttpResponse` 400 |
+| `Chabanas/params_ext.py` | `DATABASES`, constantes d'erreur, `PARAMS_EXT["GAME_MAX_DURATION"]` (en jours) |
+| `Game/models.py` | `Game`, `Variant` (FK vers `Game`) |
+| `Game/views.py` | `game_list` uniquement |
+| `Game/tools.py` | `return_game_json` : jeu et variantes actives, **sans** `game_json` |
+| `Game/admin.py` `widgets.py` | Admin (variantes en inline), `PrettyJSONWidget` |
+| `Session/models.py` | `Session` (FK vers `Game`), `Player` (FK vers `Session`) |
+| `Session/views.py` | Les 7 vues de session (tableau ci-dessous) |
+| `Session/tools.py` | `generate_session_code` (8 caractères `A-Z0-9`), `return_session_json`, `return_player_json`, `is_session_participant` (non utilisé par les vues) |
+| `Game/tests.py` `Session/tests.py` | Tests (`Session/tests.py` : environ 1 500 lignes) |
+
+### Routes
+
+Toutes en `POST` avec un corps JSON. Seul client : `Tourtoirac/chabanas.py`,
+qui interroge aussi `/game/list` (avec une liste vide) pour attendre que
+Chabanas réponde avant d'ouvrir son WebSocket. Le navigateur n'appelle jamais
+Chabanas directement.
+
+| Route | Champs requis | Réponse OK | Appelée par Tourtoirac dans |
+| ----- | ------------- | ---------- | --------------------------- |
+| `/game/list` | `game_name_list` | 200 `{game_list: [...]}` | `get_game_list` |
+| `/session/create` | `game_name`, `nickname` | 201 `{session_key, session_code}` | `create_session` |
+| `/session/get` | `session_code` | 200 `{session: ...}`, filtré par `sat_list` | `create_session`, `get_session_info` |
+| `/session/list` | `game_name_list` | 200 `{sessions: {jeu: [...]}}` | `get_active_sessions` |
+| `/session/join` | `session_code`, `nickname` | 200, session **à la racine** (pas sous `session`) | `join_session` |
+| `/session/update` | `key` | 200 `{status}` ; écrit `game_json` et/ou `locked` | `update_session_state` |
+| `/session/archive` | `key` | 200 `"Success"` en **texte brut** | `archive_session` |
+| `/session/get_archive` | `key` | 200, session inactive | — (aucun appelant) |
+
+Codes de refus de `/session/join`, traduits par Tourtoirac en codes d'erreur
+WebSocket : 400 rôle invalide, 401 `access_key` ou `key` fausse, 403
+spectateurs interdits, 409 session verrouillée ou pleine.
+
+### Flux de données
+
+- **Création** : le `game_json` de la variante (ou du jeu, pour `default`) est
+  **copié** dans `Session.game_json`. Ensuite, la session vit seule : modifier
+  le jeu dans l'admin ne touche pas les sessions existantes.
+- **Sauvegarde** : Tourtoirac renvoie l'état complet des composants par
+  `/session/update` quand une session se vide ou est close. Le `game_json`
+  d'une session est donc **l'état de la partie**, pas la définition du jeu.
+- **Expiration** : `/session/list` désactive au passage les sessions plus
+  anciennes que `GAME_MAX_DURATION` jours. Il n'y a pas de tâche planifiée.
+- **Spectateurs** : jamais écrits dans `session_players` ; c'est Tourtoirac
+  qui les compte.
+- **Archivage** : `active=False` et `code=''`. Le code redevient libre.
+
 ## Conventions
 
 - Commentaires et docstrings **en anglais**.
