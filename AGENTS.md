@@ -89,13 +89,14 @@ Chabanas directement.
 | `/session/get` | `session_code` | 200 `{session: ...}`, filtré par `sat_list` | `create_session`, `get_session_info` |
 | `/session/list` | `game_name_list` | 200 `{sessions: {jeu: [...]}}` | `get_active_sessions` |
 | `/session/join` | `session_code`, `nickname` | 200, session **à la racine** (pas sous `session`) | `join_session` |
-| `/session/update` | `key` | 200 `{status}` ; écrit `game_json` et/ou `locked` | `update_session_state` |
+| `/session/update` | `key` | 200 `{status}` ; écrit `game_json` et/ou `started` (seulement `true`, sinon 400) | `update_session_state`, `start_session` |
 | `/session/archive` | `key` | 200 `"Success"` en **texte brut** | `archive_session` |
 | `/session/get_archive` | `key` | 200, session inactive | — (aucun appelant) |
 
 Codes de refus de `/session/join`, traduits par Tourtoirac en codes d'erreur
 WebSocket : 400 rôle invalide, 401 `access_key` ou `key` fausse, 403
-spectateurs interdits, 409 session verrouillée ou pleine.
+spectateurs interdits, 409 session démarrée ou pleine (pour un **nouveau**
+joueur : un pseudo déjà assis revient toujours avec sa `key`).
 
 ### Flux de données
 
@@ -110,6 +111,10 @@ spectateurs interdits, 409 session verrouillée ou pleine.
 - **Spectateurs** : jamais écrits dans `session_players` ; c'est Tourtoirac
   qui les compte.
 - **Archivage** : `active=False` et `code=''`. Le code redevient libre.
+- **Démarrage** (`Session.started`, qui remplace `locked`) : passe à `True`
+  quand le dernier siège est pris (`start_session_if_full`, à la création et à
+  l'adhésion) ou par `/session/update`. Ne repasse jamais à `False`. Une
+  session démarrée refuse les nouveaux joueurs mais accepte les spectateurs.
 
 ## Conventions
 
