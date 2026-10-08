@@ -84,10 +84,10 @@ Chabanas directement.
 
 | Route | Champs requis | Réponse OK | Appelée par Tourtoirac dans |
 | ----- | ------------- | ---------- | --------------------------- |
-| `/game/list` | `game_name_list` | 200 `{game_list: [...]}` | `get_game_list` |
+| `/game/list` | — (`game_name_list` facultatif) | 200 `{game_list: [...]}` : sans liste, tous les jeux `active`, triés par nom ; avec liste, ces jeux, actifs ou non | `get_game_list`, `is_ready` (liste vide) |
 | `/session/create` | `game_name`, `nickname` | 201 `{session_key, session_code}` | `create_session` |
 | `/session/get` | `session_code` | 200 `{session: ...}`, filtré par `sat_list` | `create_session`, `get_session_info` |
-| `/session/list` | `game_name_list` | 200 `{sessions: {jeu: [...]}}` | `get_active_sessions` |
+| `/session/list` | — (`game_name_list` facultatif) | 200 `{sessions: {jeu: [...]}}`, une clé par jeu `active` (filtrée par la liste si elle est fournie) | `get_active_sessions` |
 | `/session/join` | `session_code`, `nickname` | 200, session **à la racine** (pas sous `session`) | `join_session` |
 | `/session/update` | `key` | 200 `{status}` ; écrit `game_json` et/ou `started` (seulement `true`, sinon 400) | `update_session_state`, `start_session` |
 | `/session/archive` | `key` | 200 `"Success"` en **texte brut** | `archive_session` |

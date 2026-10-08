@@ -130,20 +130,21 @@ def session_get(request) -> HttpResponse:
 @require_http_methods(["POST"])
 def session_list(request) -> HttpResponse:
     """
-    Returns the list of active sessions filtered by game name
+    Returns the list of active sessions, grouped by active game.
+    game_name_list is optional: when given, only these games are listed;
+    otherwise every active game of the catalogue is.
     :param request: Request information
     :type request: Http request
     :return: HTTP response code
     :rtype: HttpResponse
     """
-    requested_values = [
-        "game_name_list",
-    ]
-    data = validate_request(request, requested_values)
+    data = validate_request(request, [])
     if not isinstance(data, dict):
         return data
 
-    game_name_list = data['game_name_list']
+    game_name_list = data.get('game_name_list')
+    if game_name_list is not None and not isinstance(game_name_list, list):
+        return HttpResponse(BAD_REQUEST, status=400)
     sat_list = data.get('sat_list', None)
 
     # deactivates the games that are older than the limit set
@@ -157,7 +158,10 @@ def session_list(request) -> HttpResponse:
     active_game_names = set(
         Game.objects.filter(active=True).values_list('name', flat=True)
     )
-    requested_games = [name for name in game_name_list if name in active_game_names]
+    if game_name_list is None:
+        requested_games = sorted(active_game_names)
+    else:
+        requested_games = [name for name in game_name_list if name in active_game_names]
 
     sessions = (
         Session.objects.filter(

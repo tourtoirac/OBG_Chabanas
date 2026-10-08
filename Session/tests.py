@@ -593,8 +593,23 @@ class SessionListTests(TestCase):
         response_content = json.loads(response.content)
         self.assertEqual(len(response_content["sessions"]), 1)
 
-    def test_session_list_failure_missing_data(self):
+    def test_session_list_without_names_lists_active_games(self):
+        Game.objects.create(name="diplomacy", active=True)
+        Game.objects.create(name="vietnam", active=False)
         data = {
+        }
+
+        request = self.factory.post(reverse('session_list'), data=json.dumps(data), content_type='json')
+        response = session_list(request)
+        self.assertEqual(response.status_code, 200)
+        response_content = json.loads(response.content)
+        self.assertEqual(sorted(response_content["sessions"]), ['diplomacy', 'waterloo'])
+        self.assertEqual(len(response_content["sessions"]["waterloo"]), 1)
+        self.assertEqual(response_content["sessions"]["diplomacy"], [])
+
+    def test_session_list_rejects_a_non_list(self):
+        data = {
+            "game_name_list": "waterloo",
         }
 
         request = self.factory.post(reverse('session_list'), data=json.dumps(data), content_type='json')
