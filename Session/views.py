@@ -6,12 +6,13 @@ from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
-from Chabanas.params_ext import BAD_REQUEST, FORBIDDEN, PARAMS_EXT, UNAUTHORIZED
+from Chabanas.params_ext import BAD_REQUEST, FORBIDDEN, INVALID_NATIONALITY, PARAMS_EXT, UNAUTHORIZED
 from Chabanas.tools import validate_request
 from Game.models import Game, Variant
 from Session.tools import (
     generate_session_code,
     return_session_json,
+    seat_nationality,
     start_session_if_full,
 )
 from Session.models import Session, Player
@@ -75,6 +76,11 @@ def session_create(request) -> HttpResponse:
     if session_max_watchers is None:
         session_max_watchers = default_max_watchers
 
+    # a game that declares nationalities seats nobody without one of them
+    nationality = seat_nationality(game_json, data.get('nationality'))
+    if nationality is None:
+        return HttpResponse(status=422, content=INVALID_NATIONALITY)
+
     session = Session.objects.create(
         game = game,
         code=game_code,
@@ -92,6 +98,7 @@ def session_create(request) -> HttpResponse:
         nickname=nickname,
         key=key,
         owner=True,
+        nationality=nationality,
     )
     # a one-seat game is full as soon as it is created
     start_session_if_full(session)
@@ -194,6 +201,9 @@ def session_join(request) -> HttpResponse:
     with one they get back the seat that already carries that key for that
     nickname. A wrong key for a known nickname is refused.
 
+    When the game declares nationalities, a new player must choose one of
+    them (422 otherwise). A returning player keeps the one of their seat.
+
     A watcher (role="watcher") is only allowed to watch: it gives a nickname, no
     key, and no row is written to session_players. Spectators are therefore not
     persisted here and never consume a player seat. Counting them is the game
@@ -252,11 +262,16 @@ def session_join(request) -> HttpResponse:
     if len(players_dict) >= session.max_players:
         return HttpResponse(status = 409, content="Game is full")
 
+    nationality = seat_nationality(session.game_json, data.get('nationality'))
+    if nationality is None:
+        return HttpResponse(status=422, content=INVALID_NATIONALITY)
+
     Player.objects.create(
         session=session,
         nickname=nickname,
         key=key,
         owner=False,
+        nationality=nationality,
     )
     # the last free seat starts the game
     start_session_if_full(session)

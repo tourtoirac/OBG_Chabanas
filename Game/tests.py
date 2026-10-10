@@ -104,7 +104,25 @@ class ReturnGameJsonTest(TestCase):
             "min_players": 1,
             "max_players": 2,
             "max_watchers": 10,
+            "nationalities": [],
         })
+
+    def test_return_game_json_lists_the_nationalities_of_each_variant(self):
+        game = Game.objects.create(
+            name="vietnam",
+            game_json={"options": {"nationalities": ["US", "NVA", "US", "", 3]}},
+            active=True,
+        )
+        Variant.objects.create(game=game, name="short", game_json={"options": {"nationalities": "US"}}, active=True)
+        # the key is only read in the options, not at the root of the game_json
+        Variant.objects.create(game=game, name="root", game_json={"nationalities": ["US"]}, active=True)
+
+        game_data = return_game_json(game)
+        # duplicates and anything that is not a name are dropped
+        self.assertEqual(game_data["variant"]["default"]["nationalities"], ["US", "NVA"])
+        # a variant replaces the game_json: it does not inherit the list
+        self.assertEqual(game_data["variant"]["short"]["nationalities"], [])
+        self.assertEqual(game_data["variant"]["root"]["nationalities"], [])
 
     def test_return_game_json_with_active_variant(self):
         game = Game.objects.create(name="waterloo", active=True)
@@ -126,6 +144,7 @@ class ReturnGameJsonTest(TestCase):
             "min_players": 1,
             "max_players": 3,
             "max_watchers": 15,
+            "nationalities": [],
         })
 
     def test_return_game_json_ignores_inactive_variant(self):

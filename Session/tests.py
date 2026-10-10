@@ -203,7 +203,7 @@ class ToolTest(TestCase):
         )
 
         data = return_player_json(player)
-        self.assertEqual(data, {"nickname": "P1", "owner": True})
+        self.assertEqual(data, {"nickname": "P1", "owner": True, "nationality": None})
 
     def test_return_player_json_with_sat_list(self):
         game = Game.objects.create(name="Test Game")
@@ -216,7 +216,7 @@ class ToolTest(TestCase):
         )
 
         data = return_player_json(player, sat_list=['key'])
-        self.assertEqual(data, {"nickname": "P1", "owner": True, "key": "K1"})
+        self.assertEqual(data, {"nickname": "P1", "owner": True, "nationality": None, "key": "K1"})
 
 class SessionCreateTests(TestCase):
 
@@ -553,7 +553,7 @@ class SessionGetTests(TestCase):
         self.assertNotIn('game_json', session_data)
         self.assertEqual(session_data["name"], "waterloo")
         self.assertEqual(session_data["key"], str(self.session.key))
-        self.assertEqual(session_data["players"], [{"nickname": "P1", "owner": True}])
+        self.assertEqual(session_data["players"], [{"nickname": "P1", "owner": True, "nationality": None}])
 
 class SessionListTests(TestCase):
 
@@ -1349,7 +1349,7 @@ class SessionArchiveTests(TestCase):
         self.assertFalse(content["active"])
         self.assertEqual(
             content["players"],
-            [{"nickname": "P1", "owner": True}],
+            [{"nickname": "P1", "owner": True, "nationality": None}],
         )
 
     def test_an_archived_session_can_no_longer_be_joined(self):
@@ -1548,3 +1548,101 @@ class HttpMethodTests(TestCase):
             with self.subTest(view=view.__name__):
                 request = self.factory.get(reverse(url_name))
                 self.assertEqual(view(request).status_code, 405)
+
+
+class NationalityTests(TestCase):
+    """
+    A game may declare nationalities in the options of its game_json: every new player then
+    chooses one of them, and several players may share the same one.
+    """
+
+    def setUp(self):
+        self.factory = RequestFactory()
+        self.game = Game.objects.create(
+            name="vietnam",
+            max_players=3,
+            max_sessions=5,
+            game_json={"options": {"nationalities": ["US", "NVA"]}},
+            active=True,
+        )
+        self.plain_game = Game.objects.create(
+            name="waterloo",
+            max_players=2,
+            max_sessions=5,
+            game_json={"game": "waterloo"},
+            active=True,
+        )
+
+    def post(self, view, url_name, data):
+        request = self.factory.post(reverse(url_name), data=json.dumps(data), content_type='json')
+        return view(request)
+
+    def create(self, **extra):
+        return self.post(session_create, 'session_create', {"game_name": "vietnam", "nickname": "P1", **extra})
+
+    def join(self, code, nickname, **extra):
+        return self.post(session_join, 'session_join', {"session_code": code, "nickname": nickname, **extra})
+
+    def created_session(self):
+        response = self.create(nationality="US", key="K1")
+        return Session.objects.get(key=json.loads(response.content)["session_key"])
+
+    def test_create_stores_the_nationality_of_the_owner(self):
+        session = self.created_session()
+        self.assertEqual(Player.objects.get(session=session).nationality, "US")
+
+    def test_create_refuses_a_missing_nationality(self):
+        response = self.create()
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(Session.objects.count(), 0)
+
+    def test_create_refuses_an_unknown_nationality(self):
+        response = self.create(nationality="France")
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(Session.objects.count(), 0)
+
+    def test_create_ignores_the_nationality_when_the_game_has_none(self):
+        response = self.post(
+            session_create, 'session_create',
+            {"game_name": "waterloo", "nickname": "P1", "nationality": "US"},
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(Player.objects.get(nickname="P1").nationality, "")
+
+    def test_join_stores_the_nationality_of_a_new_player(self):
+        session = self.created_session()
+        response = self.join(session.code, "P2", nationality="NVA")
+        self.assertEqual(response.status_code, 200)
+        players = {player["nickname"]: player["nationality"] for player in json.loads(response.content)["players"]}
+        self.assertEqual(players, {"P1": "US", "P2": "NVA"})
+
+    def test_two_players_may_share_a_nationality(self):
+        session = self.created_session()
+        response = self.join(session.code, "P2", nationality="US")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Player.objects.filter(session=session, nationality="US").count(), 2)
+
+    def test_join_refuses_a_new_player_without_a_valid_nationality(self):
+        session = self.created_session()
+        for extra in ({}, {"nationality": "France"}, {"nationality": None}, {"nationality": ["US"]}):
+            with self.subTest(extra=extra):
+                response = self.join(session.code, "P2", **extra)
+                self.assertEqual(response.status_code, 422)
+        self.assertEqual(Player.objects.filter(session=session).count(), 1)
+
+    def test_a_returning_player_keeps_the_nationality_of_their_seat(self):
+        session = self.created_session()
+        response = self.join(session.code, "P1", key="K1", nationality="NVA")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Player.objects.get(session=session, nickname="P1").nationality, "US")
+
+    def test_a_watcher_needs_no_nationality(self):
+        session = self.created_session()
+        response = self.join(session.code, "W1", role="watcher")
+        self.assertEqual(response.status_code, 200)
+
+    def test_the_session_json_lists_the_nationalities_of_its_game(self):
+        session = self.created_session()
+        self.assertEqual(return_session_json(session)["nationalities"], ["US", "NVA"])
+        plain = Session.objects.create(game=self.plain_game, game_json=self.plain_game.game_json)
+        self.assertEqual(return_session_json(plain)["nationalities"], [])

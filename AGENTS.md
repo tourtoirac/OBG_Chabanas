@@ -24,7 +24,7 @@ poetry run python manage.py migrate
 poetry run python manage.py createsuperuser
 poetry run ruff check .                         # linter (ruff est la seule dep de lint)
 
-poetry run python manage.py test                # 107 tests
+poetry run python manage.py test                # 124 tests
 poetry run coverage run manage.py test
 poetry run coverage html                        # .coveragerc exclut models/tests/migrations
 ```
@@ -85,10 +85,10 @@ Chabanas directement.
 | Route | Champs requis | Réponse OK | Appelée par Tourtoirac dans |
 | ----- | ------------- | ---------- | --------------------------- |
 | `/game/list` | — (`game_name_list` facultatif) | 200 `{game_list: [...]}` : sans liste, tous les jeux `active`, triés par nom ; avec liste, ces jeux, actifs ou non | `get_game_list`, `is_ready` (liste vide) |
-| `/session/create` | `game_name`, `nickname` | 201 `{session_key, session_code}` | `create_session` |
+| `/session/create` | `game_name`, `nickname` (`nationality` si le jeu en déclare) | 201 `{session_key, session_code}` | `create_session` |
 | `/session/get` | `session_code` | 200 `{session: ...}`, filtré par `sat_list` | `create_session`, `get_session_info` |
 | `/session/list` | — (`game_name_list` facultatif) | 200 `{sessions: {jeu: [...]}}`, une clé par jeu `active` (filtrée par la liste si elle est fournie) | `get_active_sessions` |
-| `/session/join` | `session_code`, `nickname` | 200, session **à la racine** (pas sous `session`) | `join_session` |
+| `/session/join` | `session_code`, `nickname` (`nationality` pour un nouveau joueur si le jeu en déclare) | 200, session **à la racine** (pas sous `session`) | `join_session` |
 | `/session/update` | `key` | 200 `{status}` ; écrit `game_json` et/ou `started` (seulement `true`, sinon 400) | `update_session_state`, `start_session` |
 | `/session/archive` | `key` | 200 `"Success"` en **texte brut** | `archive_session` |
 | `/session/get_archive` | `key` | 200, session inactive | — (aucun appelant) |
@@ -111,6 +111,16 @@ joueur : un pseudo déjà assis revient toujours avec sa `key`).
 - **Spectateurs** : jamais écrits dans `session_players` ; c'est Tourtoirac
   qui les compte.
 - **Archivage** : `active=False` et `code=''`. Le code redevient libre.
+- **Nationalités** (facultatif) : un `game_json` peut porter, **dans ses
+  `options`**, `"nationalities": ["US", "NVA"]` (`Game/tools.py`
+  `read_nationalities` ; la clé n'est pas lue à la racine).
+  `/game/list` les expose par variante, `return_session_json` par session.
+  Quand la liste n'est pas vide, `/session/create` et `/session/join` (nouveau
+  joueur seulement) exigent un `nationality` de la liste, sinon **422**
+  (`INVALID_NATIONALITY`). Elle est stockée sur le siège (`Player.nationality`,
+  `''` quand le jeu n'en a pas) et renvoyée par `return_player_json` (`null`
+  si vide). Plusieurs joueurs peuvent partager la même. Un joueur qui revient
+  garde celle de son siège ; un spectateur n'en a pas.
 - **Démarrage** (`Session.started`, qui remplace `locked`) : passe à `True`
   quand le dernier siège est pris (`start_session_if_full`, à la création et à
   l'adhésion) ou par `/session/update`. Ne repasse jamais à `False`. Une

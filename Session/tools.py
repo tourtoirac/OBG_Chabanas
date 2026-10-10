@@ -1,6 +1,7 @@
 import secrets
 import string
 
+from Game.tools import read_nationalities
 from Session.models import Session, Player
 
 def generate_session_code():
@@ -49,6 +50,7 @@ def return_session_json(session: Session, sat_list=None):
         "started": session.started,
         "max_players": session.max_players,
         "max_watchers": session.max_watchers,
+        "nationalities": read_nationalities(session.game_json),
     }
     if 'game_json' in sat_list:
         game_json = session.game_json
@@ -58,6 +60,24 @@ def return_session_json(session: Session, sat_list=None):
         }
         data['game_json'] = session.game_json
     return data
+
+
+def seat_nationality(game_json, nationality):
+    """
+    The nationality to store on a new seat of a game.
+    :param game_json: the game_json of the session being created or joined
+    :type game_json: dict
+    :param nationality: what the player asked for
+    :return: the nationality to store, '' when the game declares none; None when
+        the game declares some and the player chose none of them
+    :rtype: str | None
+    """
+    nationalities = read_nationalities(game_json)
+    if not nationalities:
+        return ''
+    if nationality in nationalities:
+        return nationality
+    return None
 
 
 def start_session_if_full(session: Session) -> bool:
@@ -81,6 +101,7 @@ def return_player_json(player: Player, sat_list=None):
     player_data = {
         "nickname": player.nickname,
         "owner": player.owner,
+        "nationality": player.nationality or None,
     }
     if 'key' in sat_list:
         player_data['key'] = player.key

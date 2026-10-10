@@ -38,6 +38,9 @@ class Player(models.Model):
     session = models.ForeignKey(Session, on_delete=models.CASCADE)
     nickname = models.CharField(max_length=64, null=False, blank=False, unique=False)
     key = models.CharField(max_length=64, null=True, blank=True, unique=False, default = '')
+    # the side this player took among the nationalities of the game; empty when
+    # the game declares none
+    nationality = models.CharField(max_length=64, null=False, blank=True, unique=False, default='')
     owner = models.BooleanField(null=False, blank=False, default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
