@@ -30,6 +30,18 @@ DEBUG = PARAMS_EXT['DEBUG']
 
 ALLOWED_HOSTS = PARAMS_EXT['ALLOWED_HOSTS']
 
+# Sub-path the admin is published under by a reverse proxy that strips it
+# before forwarding (e.g. "/obg"). Empty when served from the root.
+URL_PREFIX = PARAMS_EXT.get('URL_PREFIX', '').rstrip('/')
+if URL_PREFIX:
+    FORCE_SCRIPT_NAME = URL_PREFIX
+    SESSION_COOKIE_PATH = CSRF_COOKIE_PATH = f'{URL_PREFIX}/'
+    # Own cookie names: another Django site on the same host name may have left
+    # `sessionid` / `csrftoken` cookies on "/", which the browser sends as well
+    # and which Django would read instead of ours.
+    SESSION_COOKIE_NAME = 'chabanas_sessionid'
+    CSRF_COOKIE_NAME = 'chabanas_csrftoken'
+
 
 # Application definition
 
@@ -135,7 +147,7 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
-STATIC_URL = '/static/'
+STATIC_URL = f'{URL_PREFIX}/static/'
 STATIC_ROOT = join(BASE_DIR, "static")
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'

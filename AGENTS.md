@@ -42,6 +42,13 @@ Il n'y a **aucune CI** dans ce dépôt : ces commandes sont le seul garde-fou.
 `Chabanas/params_ext.py` est un **dictionnaire Python en dur**, importé par
 `settings.py` au moment du chargement. Ce n'est pas un fichier `.env`.
 
+Clé facultative `URL_PREFIX` (ex. `"/obg"`) : sous-chemin sous lequel un
+reverse proxy publie l'admin en retirant ce préfixe. Elle règle
+`FORCE_SCRIPT_NAME`, `STATIC_URL` et le chemin des cookies. Absente en local ;
+en production l'admin est à `/obg/admin/` (fichiers dans `OBG/deploy/`). Les
+routes `game/` et `session/` ne sont pas concernées : Tourtoirac les appelle
+toujours à la racine.
+
 ```python
 DATABASES['default'] = {
     ENGINE: django.db.backends.postgresql_psycopg2,
