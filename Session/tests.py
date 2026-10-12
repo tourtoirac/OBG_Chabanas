@@ -253,7 +253,7 @@ class SessionCreateTests(TestCase):
         self.assertEqual(response.status_code, 201)
         json_response = json.loads(response.content)
         session = Session.objects.get(key=json_response["session_key"])
-        self.assertEqual(session.game_json, {'game': 'waterloo'})
+        self.assertEqual(session.game_json, {'game': 'waterloo', 'options': {}})
 
     def test_session_create_failure_missing_data(self):
         data = {
@@ -278,7 +278,7 @@ class SessionCreateTests(TestCase):
         self.assertEqual(response.status_code, 201)
         json_response = json.loads(response.content)
         session = Session.objects.get(key=json_response["session_key"])
-        self.assertEqual(session.game_json, {'variant': 'waterloo solo'})
+        self.assertEqual(session.game_json, {'variant': 'waterloo solo', 'options': {}})
 
     def test_session_create_failure_unknown_game(self):
         data = {
@@ -423,7 +423,7 @@ class SessionCreateTests(TestCase):
         self.assertEqual(session.variant_name, variant.name)
         self.assertEqual(session.max_players, 7)
         self.assertEqual(session.max_watchers, 15)
-        self.assertEqual(session.game_json, {'variant': 'waterloo duo'})
+        self.assertEqual(session.game_json, {'variant': 'waterloo duo', 'options': {}})
 
     def test_session_create_success_session_limits_override_variant_limits(self):
         Variant.objects.create(
@@ -1562,7 +1562,7 @@ class NationalityTests(TestCase):
             name="vietnam",
             max_players=3,
             max_sessions=5,
-            game_json={"options": {"nationalities": ["US", "NVA"]}},
+            options={"nationalities": ["US", "NVA"]},
             active=True,
         )
         self.plain_game = Game.objects.create(
@@ -1586,6 +1586,25 @@ class NationalityTests(TestCase):
     def created_session(self):
         response = self.create(nationality="US", key="K1")
         return Session.objects.get(key=json.loads(response.content)["session_key"])
+
+    def test_create_replaces_the_options_of_the_game_json(self):
+        # an "options" block left in the game_json is not what the session gets
+        self.game.game_json = {"fixed": [], "options": {"nationalities": ["old"]}}
+        self.game.save()
+
+        session = self.created_session()
+
+        self.assertEqual(session.game_json, {"fixed": [], "options": {"nationalities": ["US", "NVA"]}})
+        self.game.refresh_from_db()
+        self.assertEqual(self.game.game_json["options"], {"nationalities": ["old"]})
+
+    def test_create_from_a_variant_uses_the_options_of_the_variant(self):
+        Variant.objects.create(game=self.game, name="short", game_json={"fixed": [1]}, options={"screen_capture": False})
+
+        response = self.create(variant_name="short", key="K1")
+
+        session = Session.objects.get(key=json.loads(response.content)["session_key"])
+        self.assertEqual(session.game_json, {"fixed": [1], "options": {"screen_capture": False}})
 
     def test_create_stores_the_nationality_of_the_owner(self):
         session = self.created_session()

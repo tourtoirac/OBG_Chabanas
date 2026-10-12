@@ -10,6 +10,8 @@ class Game(models.Model):
     max_watchers = models.IntegerField(null=False, blank=False, default=10)
     max_sessions = models.IntegerField(null=False, blank=False, default=10)
     game_json = models.JSONField(null=False, blank=False, default=dict)
+    # replaces the "options" block of game_json when a session is created
+    options = models.JSONField(null=False, blank=True, default=dict)
     active = models.BooleanField(null=False, blank=False, default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -24,6 +26,11 @@ class Game(models.Model):
             models.Index(fields=["active"]),
         )
 
+    def clean(self):
+        # a form field left empty comes back as None: the column is not nullable
+        if self.options is None:
+            self.options = {}
+
     def __str__(self):
         return f"{self.name}"
 
@@ -35,6 +42,8 @@ class Variant(models.Model):
     max_players = models.IntegerField(null=False, blank=False, default=2)
     max_watchers = models.IntegerField(null=False, blank=False, default=10)
     game_json = models.JSONField(null=False, blank=False, default=dict)
+    # replaces the "options" block of game_json when a session is created
+    options = models.JSONField(null=False, blank=True, default=dict)
     active = models.BooleanField(null=False, blank=False, default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -47,6 +56,11 @@ class Variant(models.Model):
             models.Index(fields=["key"]),
             models.Index(fields=["name"]),
         )
+
+    def clean(self):
+        # a form field left empty comes back as None: the column is not nullable
+        if self.options is None:
+            self.options = {}
 
     def __str__(self):
         return f"{self.name}"

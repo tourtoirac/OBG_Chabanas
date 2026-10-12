@@ -75,7 +75,8 @@ Le dépôt fait environ 900 lignes hors tests. Deux applications Django :
 | `Chabanas/params_ext.py` | `DATABASES`, constantes d'erreur, `PARAMS_EXT["GAME_MAX_DURATION"]` (en jours) |
 | `Game/models.py` | `Game`, `Variant` (FK vers `Game`) |
 | `Game/views.py` | `game_list` uniquement |
-| `Game/tools.py` | `return_game_json` : jeu et variantes actives, **sans** `game_json` |
+| `Game/tools.py` | `return_game_json` : jeu et variantes actives, **sans** `game_json` ; `starting_game_json` : le `game_json` de départ d'une session |
+| `Game/management/commands/sync_game_json.py` | Recopie le `game_json` des jeux et variantes depuis un document JSON (entrée standard), par `key` ; un jeu ou une variante inconnus sont créés `active=False`, `options` vide. Les `options` ne sont jamais recopiées. Appelée par `OBG/deploy.sh gamejson` |
 | `Game/admin.py` `widgets.py` | Admin (variantes en inline), `PrettyJSONWidget` |
 | `Session/models.py` | `Session` (FK vers `Game`), `Player` (FK vers `Session`) |
 | `Session/views.py` | Les 7 vues de session (tableau ci-dessous) |
@@ -108,8 +109,11 @@ joueur : un pseudo déjà assis revient toujours avec sa `key`).
 ### Flux de données
 
 - **Création** : le `game_json` de la variante (ou du jeu, pour `default`) est
-  **copié** dans `Session.game_json`. Ensuite, la session vit seule : modifier
-  le jeu dans l'admin ne touche pas les sessions existantes.
+  **copié** dans `Session.game_json`, et son bloc `options` y est **remplacé**
+  par le champ `options` de cette variante ou de ce jeu (`Game/tools.py`
+  `starting_game_json`). Un `options` resté dans le `game_json` d'un jeu n'est
+  donc jamais utilisé. Ensuite, la session vit seule : modifier le jeu dans
+  l'admin ne touche pas les sessions existantes.
 - **Sauvegarde** : Tourtoirac renvoie l'état complet des composants par
   `/session/update` quand une session se vide ou est close. Le `game_json`
   d'une session est donc **l'état de la partie**, pas la définition du jeu.
@@ -118,9 +122,10 @@ joueur : un pseudo déjà assis revient toujours avec sa `key`).
 - **Spectateurs** : jamais écrits dans `session_players` ; c'est Tourtoirac
   qui les compte.
 - **Archivage** : `active=False` et `code=''`. Le code redevient libre.
-- **Nationalités** (facultatif) : un `game_json` peut porter, **dans ses
-  `options`**, `"nationalities": ["US", "NVA"]` (`Game/tools.py`
-  `read_nationalities` ; la clé n'est pas lue à la racine).
+- **Nationalités** (facultatif) : le champ `options` d'un jeu ou d'une
+  variante peut porter `"nationalities": ["US", "NVA"]` (`Game/tools.py`
+  `options_nationalities` ; `read_nationalities` lit la même clé dans le
+  `game_json` d'une session).
   `/game/list` les expose par variante, `return_session_json` par session.
   Quand la liste n'est pas vide, `/session/create` et `/session/join` (nouveau
   joueur seulement) exigent un `nationality` de la liste, sinon **422**
@@ -174,7 +179,8 @@ et `Meta.indexes` sous forme de **tuple**. Chaque modèle a un `key` UUID
   `Tourtoirac` qui le valide. Ajouter une clé ici ne casse rien, mais rien ne
   la valide non plus.
 - **Une variante ne hérite pas du jeu de base.** `Variant.game_json` *remplace*
-  `Game.game_json` : le contenu n'est jamais fusionné. Toute donnée placée
+  `Game.game_json`, et `Variant.options` *remplace* `Game.options` : le contenu
+  n'est jamais fusionné. Toute donnée placée
   uniquement au niveau du jeu (ex. `setup`) est invisible depuis une variante.
 - **Routes sans slash final** : `POST /game/list`, `POST /session/create`, etc.
 - `return_session_json` **mute** `session.game_json` en y injectant une clé

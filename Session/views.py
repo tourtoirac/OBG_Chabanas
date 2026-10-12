@@ -9,6 +9,7 @@ from django.views.decorators.http import require_http_methods
 from Chabanas.params_ext import BAD_REQUEST, FORBIDDEN, INVALID_NATIONALITY, PARAMS_EXT, UNAUTHORIZED
 from Chabanas.tools import validate_request
 from Game.models import Game, Variant
+from Game.tools import starting_game_json
 from Session.tools import (
     generate_session_code,
     return_session_json,
@@ -58,12 +59,12 @@ def session_create(request) -> HttpResponse:
     game_code = generate_session_code()
 
     if variant:
-        game_json = variant.game_json
+        game_json = starting_game_json(variant)
         variant_name = variant.name
         default_max_players = variant.max_players
         default_max_watchers = variant.max_watchers
     else:
-        game_json = game.game_json
+        game_json = starting_game_json(game)
         variant_name = 'default'
         default_max_players = game.max_players
         default_max_watchers = game.max_watchers

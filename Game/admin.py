@@ -26,6 +26,7 @@ class GameAdmin(admin.ModelAdmin):
         'max_watchers',
         'max_sessions',
         "game_json",
+        "options",
         "active",
     )
     readonly_fields = (
@@ -60,6 +61,7 @@ class VariantAdmin(admin.ModelAdmin):
         'max_players',
         'max_watchers',
         "game_json",
+        "options",
         "active",
     )
     readonly_fields = (

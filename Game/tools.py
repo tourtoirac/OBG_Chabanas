@@ -1,17 +1,45 @@
 from Game.models import Game
 
 
+def starting_game_json(source) -> dict:
+    """
+    Builds the game_json a session starts with: the game_json of the game or of
+    the variant, where the "options" block is replaced by its options field.
+    An "options" key left in the game_json itself is never used.
+    :param source: the game or the variant the session is created from
+    :type source: Game | Variant
+    :return: a new dict, the game_json of the source is left untouched
+    :rtype: dict
+    """
+    game_json = dict(source.game_json) if isinstance(source.game_json, dict) else {}
+    game_json['options'] = dict(source.options) if isinstance(source.options, dict) else {}
+    return game_json
+
+
 def read_nationalities(game_json) -> list:
     """
     Reads the optional "nationalities" key of the options of a game_json: the
     sides the players of the game choose from when they take a seat.
-    :param game_json: the game_json of a game, a variant or a session
+    :param game_json: the game_json of a session
     :type game_json: dict
     :return: the nationalities, in the order of the game_json and without
         duplicates; empty when the game declares none
     :rtype: list
     """
     options = game_json.get('options') if isinstance(game_json, dict) else None
+    return options_nationalities(options)
+
+
+def options_nationalities(options) -> list:
+    """
+    Same as read_nationalities, from the options themselves: the options field
+    of a game or of a variant.
+    :param options: the options of a game, a variant or a session
+    :type options: dict
+    :return: the nationalities, in the order of the options and without
+        duplicates; empty when the game declares none
+    :rtype: list
+    """
     declared = options.get('nationalities') if isinstance(options, dict) else None
     if not isinstance(declared, list):
         return []
@@ -34,7 +62,7 @@ def return_game_json(game: Game):
                 "min_players": game.min_players,
                 "max_players": game.max_players,
                 "max_watchers": game.max_watchers,
-                "nationalities": read_nationalities(game.game_json),
+                "nationalities": options_nationalities(game.options),
             }
         }
     }
@@ -47,8 +75,8 @@ def return_game_json(game: Game):
             "min_players": variant.min_players,
             "max_players": variant.max_players,
             "max_watchers": variant.max_watchers,
-            # a variant replaces the game_json of the game: its nationalities too
-            "nationalities": read_nationalities(variant.game_json),
+            # a variant replaces the options of the game: its nationalities too
+            "nationalities": options_nationalities(variant.options),
         }
 
     return game_data
