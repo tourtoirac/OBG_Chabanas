@@ -111,6 +111,14 @@ class ReturnGameJsonTest(TestCase):
             "nationalities": [],
         })
 
+    def test_return_game_json_carries_the_type_of_the_game(self):
+        wargame = Game.objects.create(name="typed wargame", game_json={})
+        boardgame = Game.objects.create(name="typed boardgame", game_type="Boardgame", game_json={})
+
+        # a game is a wargame unless told otherwise
+        self.assertEqual(return_game_json(wargame)["type"], "Wargame")
+        self.assertEqual(return_game_json(boardgame)["type"], "Boardgame")
+
     def test_return_game_json_lists_the_nationalities_of_each_variant(self):
         game = Game.objects.create(
             name="vietnam",

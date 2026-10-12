@@ -103,6 +103,7 @@ Deux applications Django :
 | `Session/tools.py` | `generate_session_code` (8 caractères `A-Z0-9`), `return_session_json`, `return_player_json`, `seat_nationality`, `start_session_if_full`, `is_session_participant` (non utilisé par les vues) |
 | `Chabanas/tests.py` `Game/tests.py` `Session/tests.py` | Validation des requêtes, modèles, sérialisation, vues, widget JSON et synchronisation |
 | `Game/static/Game/` | CSS et JavaScript de `PrettyJSONWidget` ; pas d'assets de jeux dans ce dépôt |
+| `Game/migrations/0005_game_type.py` | Ajoute `Game.game_type` (`Boardgame` ou `Wargame`, `Wargame` par défaut) ; `return_game_json` le renvoie sous la clé `type`, que le lobby de Raffaillac lit pour ses onglets. `sync_game_json` ne le recopie pas |
 | `Game/migrations/0004_fix_positions_boolean.py` | Convertit `options.fix_positions` en booléen sur les jeux et variantes ; ne touche pas aux sessions existantes |
 
 ### Routes

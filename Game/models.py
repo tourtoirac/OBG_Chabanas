@@ -2,9 +2,18 @@ import uuid
 
 from django.db import models
 
+class GameType(models.TextChoices):
+    BOARDGAME = "Boardgame", "Boardgame"
+    WARGAME = "Wargame", "Wargame"
+
+
 class Game(models.Model):
     key = models.UUIDField(null=False, blank=False, editable=False, unique=True, default=uuid.uuid1)
     name = models.CharField(max_length=64, null=False, blank=False, unique=True)
+    # the family the lobby files the game under, one tab per type
+    game_type = models.CharField(
+        max_length=16, null=False, blank=False, choices=GameType.choices, default=GameType.WARGAME
+    )
     min_players = models.IntegerField(null=False, blank=False, default=0)
     max_players = models.IntegerField(null=False, blank=False, default=2)
     max_watchers = models.IntegerField(null=False, blank=False, default=10)

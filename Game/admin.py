@@ -21,6 +21,7 @@ class GameAdmin(admin.ModelAdmin):
     fields = (
         'key',
         'name',
+        'game_type',
         'min_players',
         'max_players',
         'max_watchers',
@@ -34,6 +35,7 @@ class GameAdmin(admin.ModelAdmin):
     )
     list_display = (
         "name",
+        "game_type",
         "active",
         "max_players",
         "max_watchers",
@@ -42,6 +44,7 @@ class GameAdmin(admin.ModelAdmin):
         "name",
     )
     list_filter = (
+        'game_type',
         'active',
     )
     inlines = [VariantInLine]
