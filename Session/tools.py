@@ -35,7 +35,8 @@ def return_session_json(session: Session, sat_list=None):
 
     player_list = [
         return_player_json(player, sat_list=player_sat_list)
-        for player in session.player_set.all()
+        # in the order the players joined the session
+        for player in session.player_set.order_by('id')
     ]
 
     data = {
