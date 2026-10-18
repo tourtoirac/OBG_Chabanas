@@ -105,11 +105,27 @@ class ReturnGameJsonTest(TestCase):
         self.assertEqual(game_data["variant"]["default"], {
             "key": game.key,
             "name": "default",
+            "display_name": "waterloo",
             "min_players": 1,
             "max_players": 2,
             "max_watchers": 10,
             "nationalities": [],
         })
+
+    def test_return_game_json_carries_the_display_names(self):
+        game = Game.objects.create(name="waterloo", display_name="Waterloo 1815", active=True)
+        Variant.objects.create(game=game, name="solo", display_name="Solo, against the AI", active=True)
+        Variant.objects.create(game=game, name="duel", active=True)
+
+        game_data = return_game_json(game)
+        self.assertEqual(game_data["name"], "waterloo")
+        self.assertEqual(game_data["display_name"], "Waterloo 1815")
+        # the default variant is the game itself: it shows the name of the game
+        self.assertEqual(game_data["variant"]["default"]["display_name"], "Waterloo 1815")
+        # variants stay keyed by their name: sessions are still created with it
+        self.assertEqual(game_data["variant"]["solo"]["display_name"], "Solo, against the AI")
+        # an empty display_name falls back on the name
+        self.assertEqual(game_data["variant"]["duel"]["display_name"], "duel")
 
     def test_return_game_json_carries_the_type_of_the_game(self):
         wargame = Game.objects.create(name="typed wargame", game_json={})
@@ -152,6 +168,7 @@ class ReturnGameJsonTest(TestCase):
         self.assertEqual(game_data["variant"]["solo"], {
             "key": variant.key,
             "name": "solo",
+            "display_name": "solo",
             "active": True,
             "min_players": 1,
             "max_players": 3,
@@ -387,6 +404,47 @@ class SyncGameJsonTest(TestCase):
         self.assertIn("game waterloo: game_json updated", output)
         self.assertIn("1 change(s) applied", output)
 
+    def test_display_name_is_copied(self):
+        document = self.document(display_name="Waterloo 1815")
+        document["variants"][0]["display_name"] = "Short scenario"
+
+        output = self.sync(document)
+
+        self.game.refresh_from_db()
+        self.variant.refresh_from_db()
+        self.assertEqual(self.game.display_name, "Waterloo 1815")
+        self.assertEqual(self.variant.display_name, "Short scenario")
+        self.assertIn("game waterloo: display_name updated", output)
+        self.assertIn("2 change(s) applied", output)
+
+    def test_game_json_and_display_name_make_one_change(self):
+        output = self.sync(self.document(game_json={"fixed": [2]}, display_name="Waterloo 1815"))
+
+        self.game.refresh_from_db()
+        self.assertEqual((self.game.game_json, self.game.display_name), ({"fixed": [2]}, "Waterloo 1815"))
+        self.assertIn("1 change(s) applied", output)
+
+    def test_a_document_without_display_name_leaves_it_alone(self):
+        Game.objects.filter(pk=self.game.pk).update(display_name="Waterloo 1815")
+
+        output = self.sync(self.document())
+
+        self.game.refresh_from_db()
+        self.assertEqual(self.game.display_name, "Waterloo 1815")
+        self.assertIn("0 change(s) applied", output)
+
+    def test_unknown_game_is_created_with_its_display_name(self):
+        document = self.document()
+        document["games"].append(self.game_entry(key=self.NEW_GAME, name="alamo", display_name="The Alamo"))
+        document["variants"].append(self.variant_entry(
+            key=self.NEW_VARIANT, game_key=self.NEW_GAME, game_name="alamo", display_name="Night assault",
+        ))
+
+        self.sync(document)
+
+        self.assertEqual(Game.objects.get(name="alamo").display_name, "The Alamo")
+        self.assertEqual(Variant.objects.get(key=self.NEW_VARIANT).display_name, "Night assault")
+
     def test_nothing_else_is_copied_to_a_known_game(self):
         output = self.sync(self.document(max_players=9, options={"a": 2}))
 
@@ -455,7 +513,12 @@ class SyncGameJsonTest(TestCase):
         self.assertEqual(self.game.game_json, {"fixed": []})
 
     def test_malformed_document_is_refused(self):
-        for document in ([], {"games": []}, {"games": [{"key": "x", "game_json": {}}], "variants": []}):
+        for document in (
+            [],
+            {"games": []},
+            {"games": [{"key": "x", "game_json": {}}], "variants": []},
+            {"games": [self.game_entry(display_name=3)], "variants": []},
+        ):
             with self.subTest(document=document):
                 with self.assertRaises(CommandError):
                     self.sync(document)

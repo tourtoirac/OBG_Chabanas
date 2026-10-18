@@ -10,6 +10,7 @@ class VariantInLine(admin.TabularInline):
     extra = 0
     fields = (
         "name",
+        "display_name",
         "max_players",
         "max_watchers",
         "active",
@@ -21,6 +22,7 @@ class GameAdmin(admin.ModelAdmin):
     fields = (
         'key',
         'name',
+        'display_name',
         'game_type',
         'min_players',
         'max_players',
@@ -35,6 +37,7 @@ class GameAdmin(admin.ModelAdmin):
     )
     list_display = (
         "name",
+        "display_name",
         "game_type",
         "active",
         "max_players",
@@ -42,6 +45,7 @@ class GameAdmin(admin.ModelAdmin):
     )
     search_fields = (
         "name",
+        "display_name",
     )
     list_filter = (
         'game_type',
@@ -60,6 +64,7 @@ class VariantAdmin(admin.ModelAdmin):
         'key',
         'game',
         'name',
+        'display_name',
         'min_players',
         'max_players',
         'max_watchers',
@@ -72,11 +77,13 @@ class VariantAdmin(admin.ModelAdmin):
     )
     list_display = (
         "name",
+        "display_name",
         "game",
         "active"
     )
     search_fields = (
         "name",
+        "display_name",
     )
     list_filter = (
         "game",

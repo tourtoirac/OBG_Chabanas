@@ -104,6 +104,7 @@ Deux applications Django :
 | `Chabanas/tests.py` `Game/tests.py` `Session/tests.py` | Validation des requêtes, modèles, sérialisation, vues, widget JSON et synchronisation |
 | `Game/static/Game/` | CSS et JavaScript de `PrettyJSONWidget` ; pas d'assets de jeux dans ce dépôt |
 | `Game/migrations/0005_game_type.py` | Ajoute `Game.game_type` (`Boardgame` ou `Wargame`, `Wargame` par défaut) ; `return_game_json` le renvoie sous la clé `type`, que le lobby de Raffaillac lit pour ses onglets. `sync_game_json` ne le recopie pas |
+| `Game/migrations/0006_display_name.py` | Ajoute `Game.display_name` et `Variant.display_name` (texte libre, vide par défaut) : le libellé lisible que le lobby de Raffaillac affiche (onglets des jeux, menu des variantes). `return_game_json` le renvoie sous `display_name`, le `name` quand il est vide ; la variante `default` prend celui du jeu. La création de session passe toujours par `name`. `sync_game_json` le recopie comme le `game_json` (création et mise à jour, par clé) ; un document qui ne le contient pas le laisse tel quel. L'export de `deploy.sh` l'inclut |
 | `Game/migrations/0004_fix_positions_boolean.py` | Convertit `options.fix_positions` en booléen sur les jeux et variantes ; ne touche pas aux sessions existantes |
 
 ### Routes

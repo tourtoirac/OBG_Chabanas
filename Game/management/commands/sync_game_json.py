@@ -10,12 +10,16 @@ from Game.models import Game, Variant
 # key and its game_json
 GAME_FIELDS = ("name", "min_players", "max_players", "max_watchers", "max_sessions")
 VARIANT_FIELDS = ("name", "min_players", "max_players", "max_watchers")
+# copied to a known game or variant as well, when the document carries them:
+# an older export without them leaves the rows of this database alone
+SYNCED_FIELDS = ("game_json", "display_name")
 
 
 class Command(BaseCommand):
     help = (
-        "Copy the game_json of the games and variants described by a JSON "
-        "document (standard input, or a file) into this database. Rows are "
+        "Copy the game_json and the display_name of the games and variants "
+        "described by a JSON document (standard input, or a file) into this "
+        "database. Rows are "
         "matched by key. A game or a variant unknown here is created inactive, "
         "with empty options. Options are never copied, nothing is deleted and "
         "sessions are not touched."
@@ -65,20 +69,35 @@ class Command(BaseCommand):
                     or not entry.get("key")
                     or not isinstance(entry.get("game_json"), dict)
                     or any(entry.get(field) is None for field in fields)
+                    or not isinstance(entry.get("display_name", ""), str)
                 ):
                     raise CommandError(
-                        f"Every entry needs a key, a game_json object and: {', '.join(fields)}."
+                        f"Every entry needs a key, a game_json object and: {', '.join(fields)}; "
+                        "its display_name, when given, is a string."
                     )
         return document
 
     def update(self, label, row, entry) -> int:
-        if row.game_json == entry["game_json"]:
+        changed = [
+            field for field in SYNCED_FIELDS
+            if field in entry and getattr(row, field) != entry[field]
+        ]
+        if not changed:
             return 0
-        self.stdout.write(f"{label}: game_json {'would change' if self.dry_run else 'updated'}")
+        for field in changed:
+            self.stdout.write(f"{label}: {field} {'would change' if self.dry_run else 'updated'}")
         if not self.dry_run:
-            row.game_json = entry["game_json"]
-            row.save(update_fields=["game_json", "updated_at"])
+            for field in changed:
+                setattr(row, field, entry[field])
+            row.save(update_fields=changed + ["updated_at"])
         return 1
+
+    @staticmethod
+    def created_fields(entry, fields) -> dict:
+        values = {field: entry[field] for field in fields}
+        if "display_name" in entry:
+            values["display_name"] = entry["display_name"]
+        return values
 
     def created(self, label) -> int:
         self.stdout.write(f"{label}: {'would be created' if self.dry_run else 'created'} inactive, with empty options")
@@ -100,7 +119,7 @@ class Command(BaseCommand):
                 game_json=entry["game_json"],
                 options={},
                 active=False,
-                **{field: entry[field] for field in GAME_FIELDS},
+                **self.created_fields(entry, GAME_FIELDS),
             )
         return self.created(label)
 
@@ -122,6 +141,6 @@ class Command(BaseCommand):
                 game_json=entry["game_json"],
                 options={},
                 active=False,
-                **{field: entry[field] for field in VARIANT_FIELDS},
+                **self.created_fields(entry, VARIANT_FIELDS),
             )
         return self.created(label)

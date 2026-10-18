@@ -54,6 +54,8 @@ def return_game_json(game: Game):
     game_data = {
         "key": game.key,
         "name": game.name,
+        # what the lobby shows; the name stays the identifier of the game
+        "display_name": game.display_name or game.name,
         # "Boardgame" or "Wargame": the tab of the lobby the game is listed under
         "type": game.game_type,
         "max_sessions": game.max_sessions,
@@ -61,6 +63,8 @@ def return_game_json(game: Game):
             "default": {
                 "key": game.key,
                 "name": "default",
+                # the default variant is the game itself
+                "display_name": game.display_name or game.name,
                 "min_players": game.min_players,
                 "max_players": game.max_players,
                 "max_watchers": game.max_watchers,
@@ -73,6 +77,7 @@ def return_game_json(game: Game):
         game_data['variant'][variant.name] = {
             "key": variant.key,
             "name": variant.name,
+            "display_name": variant.display_name or variant.name,
             "active": variant.active,
             "min_players": variant.min_players,
             "max_players": variant.max_players,
