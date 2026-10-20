@@ -686,6 +686,19 @@ class SessionListTests(TestCase):
         self.assertEqual(len(response_content["sessions"]), 0)
         self.assertNotIn('waterloo', response_content["sessions"])
 
+    def test_session_list_excludes_inactive_game_with_active_variants(self):
+        # the lobby asks without game_name_list: an inactive game must not get
+        # a tab, whatever its active variants and sessions
+        Variant.objects.create(game=self.game, name="grouchy", active=True)
+        self.game.active = False
+        self.game.save()
+
+        request = self.factory.post(reverse('session_list'), data=json.dumps({}), content_type='json')
+        response = session_list(request)
+        self.assertEqual(response.status_code, 200)
+        response_content = json.loads(response.content)
+        self.assertNotIn('waterloo', response_content["sessions"])
+
 class SessionJoinTests(TestCase):
 
     def setUp(self):
