@@ -58,7 +58,6 @@ def return_game_json(game: Game):
         "display_name": game.display_name or game.name,
         # "Boardgame" or "Wargame": the tab of the lobby the game is listed under
         "type": game.game_type,
-        "max_sessions": game.max_sessions,
         "variant": {
             "default": {
                 "key": game.key,

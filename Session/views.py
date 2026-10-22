@@ -1,22 +1,31 @@
 import logging
 
-from datetime import datetime, timedelta, UTC
+from datetime import datetime, UTC
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
-from Chabanas.params_ext import BAD_REQUEST, FORBIDDEN, INVALID_NATIONALITY, PARAMS_EXT, UNAUTHORIZED
+from Chabanas.params_ext import (
+    BAD_REQUEST, FORBIDDEN, INVALID_NATIONALITY, PARAMS_EXT, PLATFORM_FULL, UNAUTHORIZED,
+)
 from Chabanas.tools import validate_request
 from Game.models import Game, Variant
 from Game.tools import starting_game_json
 from Session.tools import (
+    active_game_count,
+    cleanup_sessions,
+    code_in_use,
+    drop_stale_occupancy,
     generate_session_code,
+    occupy_game,
+    platform_is_full,
+    sync_occupancy,
     return_session_json,
     seat_nationality,
     start_session_if_full,
 )
-from Session.models import Session, Player
+from Session.models import OccupiedGame, ReservedCode, Session, Player
 
 logger = logging.getLogger(__name__)
 
@@ -52,10 +61,8 @@ def session_create(request) -> HttpResponse:
     if variant_name != 'default':
         variant = get_object_or_404(Variant, game=game, name=variant_name)
 
-    number_of_active_session = Session.objects.filter(game=game, active=True).count()
-    logger.debug(f"Number of active sessions for game {game_name}: {number_of_active_session}")
-    if number_of_active_session >= game.max_sessions:
-        return HttpResponse(status=409, content="Maximum number of active sessions reached")
+    if platform_is_full():
+        return HttpResponse(status=409, content=PLATFORM_FULL)
     game_code = generate_session_code()
 
     if variant:
@@ -155,13 +162,10 @@ def session_list(request) -> HttpResponse:
         return HttpResponse(BAD_REQUEST, status=400)
     sat_list = data.get('sat_list', None)
 
-    # deactivates the games that are older than the limit set
-    Session.objects.filter(
-        active=True,
-        created_at__lte=datetime.now(UTC) - timedelta(
-            days=PARAMS_EXT["GAME_MAX_DURATION"]
-        )
-    ).update(active=False, code='')
+    # archives the idle sessions and deletes the old archives
+    archived, deleted = cleanup_sessions()
+    if archived or deleted:
+        logger.info(f"Session cleanup: {archived} archived, {deleted} deleted")
 
     active_game_names = set(
         Game.objects.filter(active=True).values_list('name', flat=True)
@@ -187,7 +191,10 @@ def session_list(request) -> HttpResponse:
         )
 
     data = {
-        "sessions": active_games
+        "sessions": active_games,
+        # every game of the platform counts, other services included
+        "active_games": active_game_count(),
+        "max_active_games": PARAMS_EXT["MAX_ACTIVE_SESSIONS"],
     }
     logger.debug(data)
     return JsonResponse(status=200, data=data)
@@ -316,8 +323,144 @@ def session_archive(request) -> HttpResponse:
     session = get_object_or_404(Session, key=data['key'], active=True)
     session.active = False
     session.code=''
+    session.archived_at = datetime.now(UTC)
     session.save()
+    drop_stale_occupancy()
     return HttpResponse("Success", status = 200)
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def session_launch(request) -> HttpResponse:
+    """
+    Records that a player has just launched the game of an active session.
+    A session nobody launches anymore is archived after SESSION_IDLE_DURATION days.
+    :param request: Request information
+    :type request: Http request
+    :return: HTTP response code
+    :rtype: HttpResponse
+    """
+    requested_values = ["key"]
+    data = validate_request(request, requested_values)
+    if not isinstance(data, dict):
+        return data
+    session = get_object_or_404(Session, key=data['key'], active=True)
+    session.launched_at = datetime.now(UTC)
+    session.save(update_fields=['launched_at'])
+    return JsonResponse({"launched_at": session.launched_at.isoformat()}, status = 200)
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def session_reserve_code(request) -> HttpResponse:
+    """
+    Hands a code out to another OBG service (Hautefort, Air Force), so that a
+    code never designates two games of the platform. No session takes it until
+    it is released.
+    :param request: Request information
+    :type request: Http request
+    :return: HTTP response code
+    :rtype: HttpResponse
+    """
+    data = validate_request(request, ["owner"])
+    if not isinstance(data, dict):
+        return data
+    owner = data['owner']
+    if not isinstance(owner, str) or not owner:
+        return HttpResponse(status=400, content=BAD_REQUEST)
+    if platform_is_full():
+        return JsonResponse({"error": PLATFORM_FULL}, status=409)
+    reserved = ReservedCode.objects.create(code=generate_session_code(), owner=owner)
+    return JsonResponse({"code": reserved.code}, status=201)
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def session_release_code(request) -> HttpResponse:
+    """
+    Gives back a code reserved by /session/reserve_code: sessions may take it again.
+    An unknown code is already free (404).
+    :param request: Request information
+    :type request: Http request
+    :return: HTTP response code
+    :rtype: HttpResponse
+    """
+    data = validate_request(request, ["code"])
+    if not isinstance(data, dict):
+        return data
+    deleted, _ = ReservedCode.objects.filter(code=data['code']).delete()
+    if not deleted:
+        return JsonResponse({"released": False}, status=404)
+    drop_stale_occupancy()
+    return JsonResponse({"released": True}, status=200)
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def session_occupy(request) -> HttpResponse:
+    """
+    A service (Tourtoirac, Hautefort...) lets a player into a game: Chabanas
+    counts the games with players in them, every service included, and refuses
+    a game becoming occupied beyond PARAMS_EXT["MAX_ACTIVE_SESSIONS"] (409).
+    An unknown code (no active session, no reserved code) is a 404.
+    :param request: Request information
+    :type request: Http request
+    :return: HTTP response code
+    :rtype: HttpResponse
+    """
+    data = validate_request(request, ["code", "service"])
+    if not isinstance(data, dict):
+        return data
+    code, service = data['code'], data['service']
+    if not isinstance(code, str) or not code or not isinstance(service, str) or not service:
+        return HttpResponse(status=400, content=BAD_REQUEST)
+    if not code_in_use(code):
+        return JsonResponse({"occupied": False}, status=404)
+    if not occupy_game(code, service):
+        return JsonResponse({"error": PLATFORM_FULL}, status=409)
+    return JsonResponse({"occupied": True}, status=200)
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def session_sync_occupancy(request) -> HttpResponse:
+    """
+    A service sends every game it has players in ({service, codes}): the
+    database is checked against it and corrected, the differences logged.
+    Sent at the start of the service (empty list) and every hour.
+    :param request: Request information
+    :type request: Http request
+    :return: HTTP response code
+    :rtype: HttpResponse
+    """
+    data = validate_request(request, ["service", "codes"])
+    if not isinstance(data, dict):
+        return data
+    service, codes = data['service'], data['codes']
+    if not isinstance(service, str) or not service or not isinstance(codes, list):
+        return HttpResponse(status=400, content=BAD_REQUEST)
+    added, removed = sync_occupancy(service, codes)
+    if added or removed:
+        logger.warning(f"Occupancy of {service} corrected: added {added}, removed {removed}")
+    return JsonResponse({"added": added, "removed": removed}, status=200)
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def session_vacate(request) -> HttpResponse:
+    """
+    The last player left the game of that code, or, with "service" instead of
+    "code", every game that service had declared is forgotten.
+    :param request: Request information
+    :type request: Http request
+    :return: HTTP response code
+    :rtype: HttpResponse
+    """
+    data = validate_request(request, [])
+    if not isinstance(data, dict):
+        return data
+    code, service = data.get('code'), data.get('service')
+    if isinstance(code, str) and code:
+        vacated, _ = OccupiedGame.objects.filter(code=code).delete()
+    elif isinstance(service, str) and service:
+        vacated, _ = OccupiedGame.objects.filter(service=service).delete()
+    else:
+        return HttpResponse(status=400, content=BAD_REQUEST)
+    return JsonResponse({"vacated": vacated}, status=200)
 
 @csrf_exempt
 @require_http_methods(["POST"])

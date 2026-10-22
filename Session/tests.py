@@ -15,9 +15,10 @@ from Session.tools import (
     return_player_json,
     return_session_json,
 )
-from Session.models import Session, Player
+from Session.models import OccupiedGame, ReservedCode, Session, Player
 from Session.views import (session_create, session_get, session_list, session_archive, session_get_archive,
-                           session_join, session_update)
+                           session_join, session_launch, session_occupy, session_release_code,
+                           session_reserve_code, session_sync_occupancy, session_update, session_vacate)
 
 
 class SessionModelTest(TestCase):
@@ -128,6 +129,12 @@ class ToolTest(TestCase):
         self.assertEqual(code, 'BBBBBBBB')
         self.assertEqual(mock_choice.call_count, 16)
 
+    @patch('Session.tools.secrets.choice', side_effect=['A'] * 8 + ['B'] * 8)
+    def test_generate_session_code_skips_a_reserved_code(self, mock_choice):
+        ReservedCode.objects.create(code='AAAAAAAA', owner='hautefort')
+
+        self.assertEqual(generate_session_code(), 'BBBBBBBB')
+
     @patch('Session.tools.secrets.choice', return_value='A')
     def test_generate_session_code_reuses_archived_code(self, mock_choice):
         game = Game.objects.create(name="Test Game")
@@ -226,7 +233,6 @@ class SessionCreateTests(TestCase):
             name="waterloo",
             max_players=2,
             max_watchers=10,
-            max_sessions=5,
             game_json={
                 "game": "waterloo",
             },
@@ -303,8 +309,8 @@ class SessionCreateTests(TestCase):
         with self.assertRaises(Http404):
             session_create(request)
 
-    def test_session_create_failure_quota_exceeded(self):
-        for i in range(5):
+    def test_session_create_success_without_active_session_limit(self):
+        for i in range(15):
             session = Session.objects.create(
                 code=f"code_{i}",
                 game=self.game,
@@ -325,7 +331,31 @@ class SessionCreateTests(TestCase):
 
         request = self.factory.post(reverse('session_create'), data=json.dumps(data), content_type='json')
         response = session_create(request)
+        self.assertEqual(response.status_code, 201)
+
+    @patch.dict('Session.tools.PARAMS_EXT', {"MAX_ACTIVE_SESSIONS": 2})
+    def test_session_create_refused_when_the_platform_is_full(self):
+        # every game with players in it counts, whatever its service
+        OccupiedGame.objects.create(code="S1", service="tourtoirac")
+        OccupiedGame.objects.create(code="H1", service="hautefort")
+        data = {"game_name": "waterloo", "nickname": "Chins", "key": "123456789"}
+
+        request = self.factory.post(reverse('session_create'), data=json.dumps(data), content_type='json')
+        response = session_create(request)
+
         self.assertEqual(response.status_code, 409)
+        self.assertFalse(Session.objects.filter(active=True).exists())
+
+    @patch.dict('Session.tools.PARAMS_EXT', {"MAX_ACTIVE_SESSIONS": 2})
+    def test_session_create_success_below_the_platform_limit(self):
+        # active sessions and reserved codes nobody plays in do not count
+        Session.objects.create(game=self.game, code="S1", active=True)
+        ReservedCode.objects.create(code="H1", owner="hautefort")
+        OccupiedGame.objects.create(code="S1", service="tourtoirac")
+        data = {"game_name": "waterloo", "nickname": "Chins", "key": "123456789"}
+
+        request = self.factory.post(reverse('session_create'), data=json.dumps(data), content_type='json')
+        self.assertEqual(session_create(request).status_code, 201)
 
     def test_session_create_success_creates_owner_player(self):
         data = {
@@ -457,7 +487,6 @@ class SessionGetTests(TestCase):
             name="waterloo",
             max_players=2,
             max_watchers=10,
-            max_sessions=5,
             game_json={
                 "game": "waterloo",
             },
@@ -563,7 +592,6 @@ class SessionListTests(TestCase):
             name="waterloo",
             max_players=2,
             max_watchers=10,
-            max_sessions=5,
             game_json={
                 "game": "waterloo",
             },
@@ -607,6 +635,18 @@ class SessionListTests(TestCase):
         self.assertEqual(len(response_content["sessions"]["waterloo"]), 1)
         self.assertEqual(response_content["sessions"]["diplomacy"], [])
 
+    def test_session_list_counts_the_games_in_progress_of_the_platform(self):
+        ReservedCode.objects.create(code='AAAAAAAA', owner='hautefort')
+        ReservedCode.objects.create(code='BBBBBBBB', owner='hautefort')
+        OccupiedGame.objects.create(code='AAAAAAAA', service='hautefort')
+
+        request = self.factory.post(reverse('session_list'), data=json.dumps({}), content_type='json')
+        content = json.loads(session_list(request).content)
+
+        # only the game with players in it
+        self.assertEqual(content["active_games"], 1)
+        self.assertEqual(content["max_active_games"], 20)
+
     def test_session_list_rejects_a_non_list(self):
         data = {
             "game_name_list": "waterloo",
@@ -627,9 +667,28 @@ class SessionListTests(TestCase):
         response_content = json.loads(response.content)
         self.assertEqual(len(response_content["sessions"]), 0)
 
-    def test_session_list_deactivates_expired_sessions(self):
+    def test_session_list_archives_a_session_never_launched_for_15_days(self):
         Session.objects.filter(pk=self.session.pk).update(
-            created_at=datetime.now(UTC) - timedelta(days=8),
+            created_at=datetime.now(UTC) - timedelta(days=16),
+        )
+        data = {
+            "game_name_list": ['waterloo'],
+        }
+
+        request = self.factory.post(reverse('session_list'), data=json.dumps(data), content_type='json')
+        response = session_list(request)
+        self.assertEqual(response.status_code, 200)
+        self.session.refresh_from_db()
+        self.assertFalse(self.session.active)
+        self.assertEqual(self.session.code, '')
+        self.assertIsNotNone(self.session.archived_at)
+
+    def test_session_list_archives_a_session_not_launched_for_15_days(self):
+        self.session.code = '1234'
+        self.session.save()
+        Session.objects.filter(pk=self.session.pk).update(
+            created_at=datetime.now(UTC) - timedelta(days=60),
+            launched_at=datetime.now(UTC) - timedelta(days=16),
         )
         data = {
             "game_name_list": ['waterloo'],
@@ -642,11 +701,48 @@ class SessionListTests(TestCase):
         self.assertFalse(self.session.active)
         self.assertEqual(self.session.code, '')
 
+    def test_session_list_keeps_a_session_launched_recently(self):
+        self.session.code = '1234'
+        self.session.save()
+        Session.objects.filter(pk=self.session.pk).update(
+            created_at=datetime.now(UTC) - timedelta(days=60),
+            launched_at=datetime.now(UTC) - timedelta(days=14),
+        )
+        data = {
+            "game_name_list": ['waterloo'],
+        }
+
+        request = self.factory.post(reverse('session_list'), data=json.dumps(data), content_type='json')
+        response = session_list(request)
+        self.assertEqual(response.status_code, 200)
+        self.session.refresh_from_db()
+        self.assertTrue(self.session.active)
+        self.assertEqual(self.session.code, '1234')
+
+    def test_session_list_deletes_sessions_archived_for_180_days(self):
+        self.session.active = False
+        self.session.save()
+        Session.objects.filter(pk=self.session.pk).update(
+            archived_at=datetime.now(UTC) - timedelta(days=181),
+        )
+        recent = Session.objects.create(
+            game=self.game,
+            active=False,
+            archived_at=datetime.now(UTC) - timedelta(days=179),
+        )
+
+        request = self.factory.post(reverse('session_list'), data=json.dumps({}), content_type='json')
+        response = session_list(request)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(Session.objects.filter(pk=self.session.pk).exists())
+        self.assertFalse(Player.objects.filter(session_id=self.session.pk).exists())
+        self.assertTrue(Session.objects.filter(pk=recent.pk).exists())
+
     def test_session_list_keeps_recent_sessions_active(self):
         self.session.code = '1234'
         self.session.save()
         Session.objects.filter(pk=self.session.pk).update(
-            created_at=datetime.now(UTC) - timedelta(days=6),
+            created_at=datetime.now(UTC) - timedelta(days=14),
         )
         data = {
             "game_name_list": ['waterloo'],
@@ -707,7 +803,6 @@ class SessionJoinTests(TestCase):
             name="waterloo",
             max_players=2,
             max_watchers=10,
-            max_sessions=5,
             game_json={
                 "game": "waterloo",
             },
@@ -1205,7 +1300,6 @@ class SessionGetArchiveTests(TestCase):
             name="waterloo",
             max_players=2,
             max_watchers=10,
-            max_sessions=5,
             game_json={
                 "game": "waterloo",
             },
@@ -1277,7 +1371,6 @@ class SessionArchiveTests(TestCase):
             name="waterloo",
             max_players=2,
             max_watchers=10,
-            max_sessions=5,
             game_json={
                 "game": "waterloo",
             },
@@ -1308,6 +1401,7 @@ class SessionArchiveTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.session.refresh_from_db()
         self.assertFalse(self.session.active)
+        self.assertIsNotNone(self.session.archived_at)
 
     def test_session_archive_failure_missing_data(self):
         data = {
@@ -1399,6 +1493,189 @@ class SessionArchiveTests(TestCase):
             session_archive(request)
 
 
+class SessionLaunchTests(TestCase):
+
+    def setUp(self):
+        self.factory = RequestFactory()
+        self.game = Game.objects.create(name="waterloo", active=True)
+        self.session = Session.objects.create(game=self.game, code='1234', active=True)
+
+    def launch(self, key):
+        request = self.factory.post(
+            reverse('session_launch'), data=json.dumps({"key": key}), content_type='json'
+        )
+        return session_launch(request)
+
+    def test_session_launch_records_the_date(self):
+        before = datetime.now(UTC)
+        response = self.launch(str(self.session.key))
+        self.assertEqual(response.status_code, 200)
+        self.session.refresh_from_db()
+        self.assertGreaterEqual(self.session.launched_at, before)
+        self.assertEqual(json.loads(response.content)["launched_at"], self.session.launched_at.isoformat())
+
+    def test_session_launch_unknown_session(self):
+        with self.assertRaises(Http404):
+            self.launch(str(uuid.uuid4()))
+
+    def test_session_launch_archived_session(self):
+        self.session.active = False
+        self.session.save()
+        with self.assertRaises(Http404):
+            self.launch(str(self.session.key))
+
+    def test_session_launch_without_key(self):
+        request = self.factory.post(reverse('session_launch'), data=json.dumps({}), content_type='json')
+        self.assertEqual(session_launch(request).status_code, 400)
+
+
+class ReservedCodeTests(TestCase):
+
+    def setUp(self):
+        self.factory = RequestFactory()
+
+    def post(self, view, url_name, data):
+        request = self.factory.post(reverse(url_name), data=json.dumps(data), content_type='json')
+        return view(request)
+
+    @patch('Session.tools.secrets.choice', side_effect=['A'] * 8 + ['B'] * 8)
+    def test_reserve_code_skips_the_codes_of_active_sessions(self, mock_choice):
+        game = Game.objects.create(name="waterloo")
+        Session.objects.create(game=game, code='AAAAAAAA', active=True)
+
+        response = self.post(session_reserve_code, 'session_reserve_code', {"owner": "hautefort"})
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(json.loads(response.content), {"code": "BBBBBBBB"})
+        self.assertEqual(ReservedCode.objects.get(code='BBBBBBBB').owner, 'hautefort')
+
+    @patch.dict('Session.tools.PARAMS_EXT', {"MAX_ACTIVE_SESSIONS": 1})
+    def test_reserve_code_refused_when_the_platform_is_full(self):
+        ReservedCode.objects.create(code='AAAAAAAA', owner='hautefort')
+        OccupiedGame.objects.create(code='AAAAAAAA', service='hautefort')
+
+        response = self.post(session_reserve_code, 'session_reserve_code', {"owner": "hautefort"})
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(ReservedCode.objects.count(), 1)
+
+    def test_reserve_code_needs_an_owner(self):
+        for data in ({}, {"owner": ""}, {"owner": 3}):
+            with self.subTest(data=data):
+                self.assertEqual(self.post(session_reserve_code, 'session_reserve_code', data).status_code, 400)
+
+    def test_release_code(self):
+        ReservedCode.objects.create(code='AAAAAAAA', owner='hautefort')
+
+        response = self.post(session_release_code, 'session_release_code', {"code": "AAAAAAAA"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(ReservedCode.objects.exists())
+
+    def test_release_an_unknown_code(self):
+        response = self.post(session_release_code, 'session_release_code', {"code": "AAAAAAAA"})
+        self.assertEqual(response.status_code, 404)
+
+    def test_release_code_without_code(self):
+        self.assertEqual(self.post(session_release_code, 'session_release_code', {}).status_code, 400)
+
+
+class OccupancyTests(TestCase):
+
+    def setUp(self):
+        self.factory = RequestFactory()
+        self.game = Game.objects.create(name="waterloo")
+        for code in ("S1", "S2"):
+            Session.objects.create(game=self.game, code=code, active=True)
+        ReservedCode.objects.create(code="H1", owner="hautefort")
+
+    def post(self, view, url_name, data):
+        request = self.factory.post(reverse(url_name), data=json.dumps(data), content_type='json')
+        return view(request)
+
+    def occupy(self, code, service="tourtoirac"):
+        return self.post(session_occupy, 'session_occupy', {"code": code, "service": service})
+
+    @patch.dict('Session.tools.PARAMS_EXT', {"MAX_ACTIVE_SESSIONS": 2})
+    def test_occupy_up_to_the_limit_of_the_platform(self):
+        self.assertEqual(self.occupy("S1").status_code, 200)
+        self.assertEqual(self.occupy("H1", "hautefort").status_code, 200)
+        # a game already occupied takes one more player
+        self.assertEqual(self.occupy("S1").status_code, 200)
+        # an empty one is refused
+        self.assertEqual(self.occupy("S2").status_code, 409)
+        self.assertEqual(sorted(OccupiedGame.objects.values_list("code", flat=True)), ["H1", "S1"])
+
+    def test_occupy_an_unknown_code(self):
+        Session.objects.create(game=self.game, code="OLD", active=False)
+        for code in ("NOPE", "OLD"):
+            with self.subTest(code=code):
+                self.assertEqual(self.occupy(code).status_code, 404)
+        self.assertFalse(OccupiedGame.objects.exists())
+
+    def test_occupy_needs_a_code_and_a_service(self):
+        for data in ({"code": "S1"}, {"service": "tourtoirac"}, {"code": "", "service": "tourtoirac"}):
+            with self.subTest(data=data):
+                self.assertEqual(self.post(session_occupy, 'session_occupy', data).status_code, 400)
+
+    @patch.dict('Session.tools.PARAMS_EXT', {"MAX_ACTIVE_SESSIONS": 1})
+    def test_vacate_frees_a_place(self):
+        self.occupy("S1")
+        response = self.post(session_vacate, 'session_vacate', {"code": "S1"})
+        self.assertEqual(json.loads(response.content), {"vacated": 1})
+        self.assertEqual(self.occupy("S2").status_code, 200)
+
+    def test_vacate_every_game_of_a_service(self):
+        self.occupy("S1")
+        self.occupy("S2")
+        self.occupy("H1", "hautefort")
+        response = self.post(session_vacate, 'session_vacate', {"service": "tourtoirac"})
+        self.assertEqual(json.loads(response.content), {"vacated": 2})
+        self.assertEqual(list(OccupiedGame.objects.values_list("code", flat=True)), ["H1"])
+
+    @patch.dict('Session.tools.PARAMS_EXT', {"MAX_ACTIVE_SESSIONS": 1})
+    def test_sync_replaces_the_games_of_a_service(self):
+        self.occupy("S1")
+        OccupiedGame.objects.create(code="H1", service="hautefort")
+        # beyond the limit: a sync says what is, it is never refused
+        response = self.post(session_sync_occupancy, 'session_sync_occupancy',
+                             {"service": "tourtoirac", "codes": ["S2", "NOPE", "H1"]})
+        self.assertEqual(json.loads(response.content), {"added": ["S2"], "removed": ["S1"]})
+        # S1 left, S2 came, an unknown code is ignored, H1 stays Hautefort's
+        self.assertEqual(
+            sorted(OccupiedGame.objects.values_list("code", "service")),
+            [("H1", "hautefort"), ("S2", "tourtoirac")],
+        )
+
+    def test_sync_of_a_right_database_changes_nothing(self):
+        self.occupy("S1")
+        response = self.post(session_sync_occupancy, 'session_sync_occupancy',
+                             {"service": "tourtoirac", "codes": ["S1"]})
+        self.assertEqual(json.loads(response.content), {"added": [], "removed": []})
+
+    def test_sync_with_no_game_frees_the_service(self):
+        self.occupy("S1")
+        self.post(session_sync_occupancy, 'session_sync_occupancy', {"service": "tourtoirac", "codes": []})
+        self.assertFalse(OccupiedGame.objects.exists())
+
+    def test_sync_needs_a_service_and_a_list(self):
+        for data in ({"codes": []}, {"service": "tourtoirac"}, {"service": "tourtoirac", "codes": "S1"}):
+            with self.subTest(data=data):
+                self.assertEqual(
+                    self.post(session_sync_occupancy, 'session_sync_occupancy', data).status_code, 400)
+
+    def test_vacate_needs_a_code_or_a_service(self):
+        self.assertEqual(self.post(session_vacate, 'session_vacate', {}).status_code, 400)
+
+    def test_an_archived_or_released_game_is_no_longer_occupied(self):
+        self.occupy("S1")
+        self.occupy("H1", "hautefort")
+        session = Session.objects.get(code="S1")
+        self.post(session_archive, 'session_archive', {"key": str(session.key)})
+        self.post(session_release_code, 'session_release_code', {"code": "H1"})
+        self.assertFalse(OccupiedGame.objects.exists())
+
+
 class SessionUpdateTests(TestCase):
 
     def setUp(self):
@@ -1407,7 +1684,6 @@ class SessionUpdateTests(TestCase):
             name="waterloo",
             max_players=2,
             max_watchers=10,
-            max_sessions=5,
             game_json={
                 "game": "waterloo",
             },
@@ -1556,6 +1832,12 @@ class HttpMethodTests(TestCase):
             ('session_join', session_join),
             ('session_get_archive', session_get_archive),
             ('session_archive', session_archive),
+            ('session_launch', session_launch),
+            ('session_reserve_code', session_reserve_code),
+            ('session_occupy', session_occupy),
+            ('session_vacate', session_vacate),
+            ('session_sync_occupancy', session_sync_occupancy),
+            ('session_release_code', session_release_code),
             ('session_update', session_update),
         ):
             with self.subTest(view=view.__name__):
@@ -1574,14 +1856,12 @@ class NationalityTests(TestCase):
         self.game = Game.objects.create(
             name="vietnam",
             max_players=3,
-            max_sessions=5,
             options={"nationalities": ["US", "NVA"]},
             active=True,
         )
         self.plain_game = Game.objects.create(
             name="waterloo",
             max_players=2,
-            max_sessions=5,
             game_json={"game": "waterloo"},
             active=True,
         )

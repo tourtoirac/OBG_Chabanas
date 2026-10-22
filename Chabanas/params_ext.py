@@ -22,8 +22,13 @@ PARAMS_EXT = {
             }
         }
     },
-    "MAX_ACTIVE_SESSIONS": 1000,
-    "GAME_MAX_DURATION": 7 # in days
+    # games in progress (with players in them) of the whole platform, every
+    # game and service included: Session.models.OccupiedGame
+    "MAX_ACTIVE_SESSIONS": 20,
+    # an active session nobody has launched for that long is archived
+    "SESSION_IDLE_DURATION": 15, # in days
+    # an archived session is deleted after that long
+    "SESSION_ARCHIVE_DURATION": 180, # in days
 }
 
 BAD_REQUEST = "Bad Request"
@@ -32,3 +37,4 @@ FORBIDDEN_METHOD = "Forbidden method"
 CONFLICT = "Conflict"
 UNAUTHORIZED = "Unauthorized"
 INVALID_NATIONALITY = "Invalid nationality"
+PLATFORM_FULL = "Maximum number of active games reached"

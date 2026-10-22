@@ -19,7 +19,6 @@ class Game(models.Model):
     min_players = models.IntegerField(null=False, blank=False, default=0)
     max_players = models.IntegerField(null=False, blank=False, default=2)
     max_watchers = models.IntegerField(null=False, blank=False, default=10)
-    max_sessions = models.IntegerField(null=False, blank=False, default=10)
     game_json = models.JSONField(null=False, blank=False, default=dict)
     # replaces the "options" block of game_json when a session is created
     options = models.JSONField(null=False, blank=True, default=dict)

@@ -8,7 +8,7 @@ from Game.models import Game, Variant
 
 # what a game or a variant created here takes from the document, besides its
 # key and its game_json
-GAME_FIELDS = ("name", "min_players", "max_players", "max_watchers", "max_sessions")
+GAME_FIELDS = ("name", "min_players", "max_players", "max_watchers")
 VARIANT_FIELDS = ("name", "min_players", "max_players", "max_watchers")
 # copied to a known game or variant as well, when the document carries them:
 # an older export without them leaves the rows of this database alone

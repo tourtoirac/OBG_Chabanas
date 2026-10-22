@@ -27,7 +27,6 @@ class GameAdmin(admin.ModelAdmin):
         'min_players',
         'max_players',
         'max_watchers',
-        'max_sessions',
         "game_json",
         "options",
         "active",

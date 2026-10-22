@@ -41,7 +41,6 @@ class GameModelTest(TestCase):
             name= "Test Game",
             max_players=2,
             max_watchers=10,
-            max_sessions=5,
             game_json={
                 "game": "default",
             },
@@ -50,7 +49,6 @@ class GameModelTest(TestCase):
         self.assertEqual(game.name, "Test Game")
         self.assertEqual(game.max_players, 2)
         self.assertEqual(game.max_watchers, 10)
-        self.assertEqual(game.max_sessions, 5)
         self.assertEqual(game.active, True)
         self.assertEqual(game.game_json, {"game": "default"})
         self.assertEqual(game.__str__(), "Test Game")
@@ -60,7 +58,6 @@ class GameModelTest(TestCase):
             name= "Test Game",
             max_players=2,
             max_watchers=10,
-            max_sessions=5,
             game_json={
                 "game": "test",
             },
@@ -92,7 +89,6 @@ class ReturnGameJsonTest(TestCase):
             min_players=1,
             max_players=2,
             max_watchers=10,
-            max_sessions=5,
             game_json={"game": "waterloo"},
             active=True,
         )
@@ -100,7 +96,6 @@ class ReturnGameJsonTest(TestCase):
         game_data = return_game_json(game)
         self.assertEqual(game_data["key"], game.key)
         self.assertEqual(game_data["name"], "waterloo")
-        self.assertEqual(game_data["max_sessions"], 5)
         self.assertEqual(list(game_data["variant"].keys()), ["default"])
         self.assertEqual(game_data["variant"]["default"], {
             "key": game.key,
@@ -196,7 +191,6 @@ class GameListTests(TestCase):
             name="waterloo",
             max_players=2,
             max_watchers=10,
-            max_sessions=5,
             game_json={
                 "game": "waterloo",
             },
@@ -206,7 +200,6 @@ class GameListTests(TestCase):
             name="diplomacy",
             max_players=2,
             max_watchers=10,
-            max_sessions=5,
             game_json={
                 "game": "diplomacy",
             },
@@ -359,7 +352,6 @@ class SyncGameJsonTest(TestCase):
             "min_players": 0,
             "max_players": 2,
             "max_watchers": 10,
-            "max_sessions": 10,
             "game_json": {"fixed": []},
             **changes,
         }
@@ -482,7 +474,7 @@ class SyncGameJsonTest(TestCase):
     def test_unknown_game_is_created_inactive_with_empty_options(self):
         document = self.document()
         document["games"].append(self.game_entry(
-            key=self.NEW_GAME, name="alamo", max_players=4, max_sessions=3,
+            key=self.NEW_GAME, name="alamo", max_players=4,
             game_json={"fixed": [7]}, options={"a": 1}, active=True,
         ))
         document["variants"].append(self.variant_entry(
@@ -496,7 +488,7 @@ class SyncGameJsonTest(TestCase):
         self.assertFalse(created.active)
         self.assertEqual(created.options, {})
         self.assertEqual(created.game_json, {"fixed": [7]})
-        self.assertEqual((created.max_players, created.max_sessions), (4, 3))
+        self.assertEqual(created.max_players, 4)
         variant = Variant.objects.get(game=created)
         self.assertEqual((variant.name, variant.active, variant.options), ("night", False, {}))
         self.assertIn("game alamo: created inactive, with empty options", output)

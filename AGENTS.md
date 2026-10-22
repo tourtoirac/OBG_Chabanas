@@ -92,7 +92,7 @@ Deux applications Django :
 | ------- | ------- |
 | `Chabanas/urls.py` | Montage : `admin/`, `game/` → `Game.urls`, `session/` → `Session.urls` |
 | `Chabanas/tools.py` | `validate_request(request, mandatory_values)` : parse le JSON, vérifie les clés, renvoie un `dict` **ou** une `HttpResponse` 400 |
-| `Chabanas/params_ext.py` | `DATABASES`, constantes d'erreur, `PARAMS_EXT["GAME_MAX_DURATION"]` (en jours) |
+| `Chabanas/params_ext.py` | `DATABASES`, constantes d'erreur, `PARAMS_EXT["SESSION_IDLE_DURATION"]` et `["SESSION_ARCHIVE_DURATION"]` (en jours) |
 | `Game/models.py` | `Game`, `Variant` (FK vers `Game`) |
 | `Game/views.py` | `game_list` uniquement |
 | `Game/tools.py` | `return_game_json` : jeu et variantes actives, **sans** `game_json` ; `starting_game_json` : le `game_json` de départ d'une session |
@@ -119,10 +119,16 @@ Chabanas directement.
 | `/game/list` | — (`game_name_list` facultatif) | 200 `{game_list: [...]}` : sans liste, tous les jeux `active`, triés par nom ; avec liste, ces jeux, actifs ou non | `get_game_list`, `is_ready` (liste vide) |
 | `/session/create` | `game_name`, `nickname` (`nationality` si le jeu en déclare) | 201 `{session_key, session_code}` | `create_session` |
 | `/session/get` | `session_code` | 200 `{session: ...}`, détails optionnels via `sat_list` | `create_session`, `get_session_info` |
-| `/session/list` | — (`game_name_list` facultatif) | 200 `{sessions: {jeu: [...]}}`, une clé par jeu `active` (filtrée par la liste si elle est fournie) | `get_active_sessions` |
+| `/session/list` | — (`game_name_list` facultatif) | 200 `{sessions: {jeu: [...]}, active_games, max_active_games}`, une clé par jeu `active` (filtrée par la liste si elle est fournie) | `list_active`, `get_active_sessions` |
 | `/session/join` | `session_code`, `nickname` (`nationality` pour un nouveau joueur si le jeu en déclare) | 200, session **à la racine** (pas sous `session`) | `join_session` |
 | `/session/update` | `key` | 200 `{status: "success"}` ; écrit un `game_json` non vide et/ou `started: true` (autre valeur non nulle : 400) | `update_session_state`, `start_session` |
-| `/session/archive` | `key` | 200 `"Success"` en **texte brut** | `archive_session` |
+| `/session/archive` | `key` | 200 `"Success"` en **texte brut** ; date `archived_at` | `archive_session` |
+| `/session/launch` | `key` | 200 `{launched_at}` ; date `launched_at` d'une session active | `launch_session` (à chaque `resume_session` d'un joueur) |
+| `/session/reserve_code` | `owner` (nom du service) | 201 `{code}` : code réservé dans `reserved_code` | Hautefort, à la création d'une partie |
+| `/session/release_code` | `code` | 200 `{released: true}`, 404 si le code n'était pas réservé | Hautefort, à l'archivage ou la suppression |
+| `/session/occupy` | `code`, `service` | 200 `{occupied: true}`, 409 plateforme pleine, 404 code inconnu | Tourtoirac `occupy_game`, Hautefort `occupy_game` |
+| `/session/vacate` | `code` (ou `service`) | 200 `{vacated}` | `vacate_game` des deux services |
+| `/session/sync_occupancy` | `service`, `codes` | 200 `{added, removed}` | vérification horaire des deux services |
 | `/session/get_archive` | `key` | 200, session inactive à la racine, avec `game_json` | — (aucun appelant) |
 
 Codes de refus de `/session/join`, traduits par Tourtoirac en codes d'erreur
@@ -141,11 +147,37 @@ joueur : un pseudo déjà assis revient toujours avec sa `key`).
 - **Sauvegarde** : Tourtoirac renvoie l'état complet des composants par
   `/session/update` quand une session se vide ou est close. Le `game_json`
   d'une session est donc **l'état de la partie**, pas la définition du jeu.
-- **Expiration** : `/session/list` désactive au passage les sessions plus
-  anciennes que `GAME_MAX_DURATION` jours. Il n'y a pas de tâche planifiée.
+- **Expiration** : `/session/list` appelle au passage `cleanup_sessions`
+  (`Session/tools.py`) : une session active dont `launched_at` (à défaut
+  `created_at`) a plus de `SESSION_IDLE_DURATION` jours (15) est archivée,
+  son code libéré ; une session dont `archived_at` a plus de
+  `SESSION_ARCHIVE_DURATION` jours (180) est effacée avec ses joueurs. Il n'y
+  a pas de tâche planifiée.
 - **Spectateurs** : jamais écrits dans `session_players` ; c'est Tourtoirac
   qui les compte.
 - **Archivage** : `active=False` et `code=''`. Le code redevient libre.
+- **Limite de la plateforme** : `PARAMS_EXT["MAX_ACTIVE_SESSIONS"]` (20)
+  parties **en cours** au plus, c'est-à-dire avec au moins un joueur connecté
+  (pas un spectateur), **tous jeux et services confondus** : table
+  `occupied_game` (`OccupiedGame`, par code). Pas de limite par jeu.
+  - **Temps réel** : le service qui tient les connexions (Tourtoirac, Hautefort)
+    appelle `/session/occupy {code, service}` quand un joueur entre dans une
+    partie vide (409 si la plateforme est pleine : le joueur est refusé, même
+    pour revenir dans une partie existante) et `/session/vacate {code}` quand
+    le dernier joueur la quitte. Admission sérialisée par un verrou
+    `pg_advisory_xact_lock`.
+  - **Vérification horaire** : chaque service envoie au démarrage (liste vide)
+    puis toutes les heures `/session/sync_occupancy {service, codes}` ; la base
+    est corrigée et l'écart journalisé (`Occupancy of ... corrected`).
+  - `/session/create` et `/session/reserve_code` répondent aussi 409
+    `PLATFORM_FULL` quand c'est plein. Une session archivée ou un code libéré
+    sort d'`occupied_game` (`drop_stale_occupancy`).
+- **Codes centralisés** : Chabanas donne les codes de **tous** les services
+  d'OBG. `generate_session_code` écarte les codes des sessions actives et ceux
+  de `ReservedCode`, que les autres services (aujourd'hui Hautefort, `owner`
+  `"hautefort"`) réservent par `/session/reserve_code` et rendent par
+  `/session/release_code`. Un nouveau service fait de même, sans parler aux
+  autres.
 - **Nationalités** (facultatif) : le champ `options` d'un jeu ou d'une
   variante peut porter `"nationalities": ["US", "NVA"]` (`Game/tools.py`
   `options_nationalities` ; `read_nationalities` lit la même clé dans le
