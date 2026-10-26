@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OBG – Jeux arbitrés</title>
+  {% include 'Session/manage_style.html' %}
+  <style>
+    .state.on { color: var(--green); font-weight: 600; }
+    .state.off { color: var(--red); font-weight: 600; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>OBG – Jeux arbitrés</h1>
+    <nav class="pages">
+      <a href="{% url 'manage_page' %}">Sessions</a>
+      <a class="current" href="{% url 'manage_refereed_page' %}">Jeux arbitrés</a>
+    </nav>
+    <span class="user">{{ request.user.username }} · <a href="{% url 'admin:index' %}">admin Django</a></span>
+  </header>
+  <main>
+    <div class="toolbar">
+      <button id="refresh" type="button">Rafraîchir</button>
+      <span id="status" class="muted"></span>
+    </div>
+    <p class="muted">Un jeu désactivé n'apparaît plus dans le lobby et n'accepte plus de nouvelle partie ;
+      ses parties en cours continuent.</p>
+    <div id="warnings" class="warnings"></div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Jeu</th>
+            <th>Module</th>
+            <th>État</th>
+            <th title="Parties listées dans le lobby du jeu">Parties</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="rows"><tr><td colspan="5" class="muted">Chargement…</td></tr></tbody>
+      </table>
+    </div>
+  </main>
+  <script>
+    const API = {
+      modules: "{% url 'manage_modules' %}",
+      module: "{% url 'manage_module_active' %}",
+    };
+    const CSRF = "{{ csrf_token }}";
+
+    const rows = document.getElementById("rows");
+    const statusText = document.getElementById("status");
+    const warnings = document.getElementById("warnings");
+    let busy = false;
+
+    function el(tag, attrs = {}, ...children) {
+      const node = document.createElement(tag);
+      for (const [k, v] of Object.entries(attrs)) {
+        if (k === "class") node.className = v;
+        else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+        else if (v !== false && v !== null && v !== undefined) node.setAttribute(k, v === true ? "" : v);
+      }
+      node.append(...children.filter((c) => c !== null && c !== undefined));
+      return node;
+    }
+
+    async function call(url, body) {
+      const response = await fetch(url, body === undefined ? {} : {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRFToken": CSRF },
+        body: JSON.stringify(body),
+      });
+      // the Django session has expired: back to the login
+      if (response.redirected) { window.location.reload(); throw new Error("Session expirée"); }
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `Erreur ${response.status}`);
+      return data;
+    }
+
+    async function toggle(module) {
+      if (busy) return;
+      const turnOff = module.active;
+      if (turnOff && !confirm(`Désactiver ${module.title} ? Il disparaîtra du lobby ; ses parties en cours continuent.`)) return;
+      busy = true;
+      try {
+        await call(API.module, { module: module.module, active: !turnOff });
+        statusText.textContent = `${module.title} ${turnOff ? "désactivé" : "activé"}.`;
+      } catch (e) {
+        alert(e.message);
+      } finally {
+        busy = false;
+      }
+      await load();
+    }
+
+    function render(list) {
+      if (!list.length) {
+        rows.replaceChildren(el("tr", {}, el("td", { colspan: 5, class: "muted" }, "Aucun jeu arbitré.")));
+        return;
+      }
+      rows.replaceChildren(...list.map((module) => el("tr", {},
+        el("td", {}, module.title),
+        el("td", { class: "code" }, module.module),
+        el("td", {}, el("span", { class: `state ${module.active ? "on" : "off"}` }, module.active ? "actif" : "inactif")),
+        el("td", {}, String(module.games)),
+        el("td", {}, el("button", { type: "button", class: module.active ? "danger" : "",
+                                    onclick: () => toggle(module) }, module.active ? "désactiver" : "activer")),
+      )));
+    }
+
+    async function load() {
+      try {
+        const data = await call(API.modules);
+        render(data.modules);
+        warnings.replaceChildren();
+      } catch (e) {
+        warnings.replaceChildren(el("p", {}, e.message));
+      }
+    }
+
+    document.getElementById("refresh").addEventListener("click", () => void load());
+    void load();
+  </script>
+</body>
+</html>

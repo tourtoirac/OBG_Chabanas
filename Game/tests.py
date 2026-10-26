@@ -1,3 +1,4 @@
+import importlib
 import io
 import json
 import tempfile
@@ -122,6 +123,16 @@ class ReturnGameJsonTest(TestCase):
         # an empty display_name falls back on the name
         self.assertEqual(game_data["variant"]["duel"]["display_name"], "duel")
 
+    def test_return_game_json_carries_the_thumbnail_display(self):
+        game = Game.objects.create(name="ring", display_name="War of the Ring", thumbnail_display="WotR")
+        self.assertEqual(return_game_json(game)["thumbnail_display"], "WotR")
+        self.assertEqual(return_game_json(game)["display_name"], "War of the Ring")
+        # empty, the tab shows the display_name, else the name
+        game.thumbnail_display = ""
+        self.assertEqual(return_game_json(game)["thumbnail_display"], "War of the Ring")
+        game.display_name = ""
+        self.assertEqual(return_game_json(game)["thumbnail_display"], "ring")
+
     def test_return_game_json_carries_the_type_of_the_game(self):
         wargame = Game.objects.create(name="typed wargame", game_json={})
         boardgame = Game.objects.create(name="typed boardgame", game_type="Boardgame", game_json={})
@@ -183,6 +194,14 @@ class ReturnGameJsonTest(TestCase):
         self.assertEqual(list(game_data["variant"].keys()), ["default"])
 
 
+    def test_return_game_json_of_inactive_game_offers_only_active_variants(self):
+        game = Game.objects.create(name="jeux_et_strategies", active=False)
+        Variant.objects.create(game=game, name="la_guerre_des_ducs", active=True)
+        Variant.objects.create(game=game, name="draft", active=False)
+
+        game_data = return_game_json(game)
+        self.assertEqual(list(game_data["variant"].keys()), ["la_guerre_des_ducs"])
+
 class GameListTests(TestCase):
 
     def setUp(self):
@@ -241,6 +260,8 @@ class GameListTests(TestCase):
     def test_game_list_without_names_returns_active_games(self):
         self.diplomacy.active = False
         self.diplomacy.save()
+        self.diplomacy_variant.active = False
+        self.diplomacy_variant.save()
         data = {
         }
 
@@ -252,6 +273,23 @@ class GameListTests(TestCase):
             [game["name"] for game in response_content["game_list"]],
             ['waterloo'],
         )
+
+    def test_game_list_without_names_returns_inactive_game_with_active_variant(self):
+        self.diplomacy.active = False
+        self.diplomacy.save()
+        # a second active variant must not list the game twice
+        Variant.objects.create(game=self.diplomacy, name="other", active=True)
+
+        request = self.factory.post(reverse('game_list'), data=json.dumps({}), content_type='json')
+        response = game_list(request)
+        self.assertEqual(response.status_code, 200)
+        response_content = json.loads(response.content)
+        self.assertEqual(
+            [game["name"] for game in response_content["game_list"]],
+            ['diplomacy', 'waterloo'],
+        )
+        diplomacy = response_content["game_list"][0]
+        self.assertNotIn("default", diplomacy["variant"])
 
     def test_game_list_rejects_a_non_list(self):
         data = {
@@ -437,6 +475,21 @@ class SyncGameJsonTest(TestCase):
         self.assertEqual(Game.objects.get(name="alamo").display_name, "The Alamo")
         self.assertEqual(Variant.objects.get(key=self.NEW_VARIANT).display_name, "Night assault")
 
+    def test_the_thumbnail_display_of_a_game_is_copied(self):
+        document = self.document(thumbnail_display="Waterloo")
+        document["games"].append(self.game_entry(key=self.NEW_GAME, name="alamo", thumbnail_display="Alamo"))
+
+        output = self.sync(document)
+
+        self.game.refresh_from_db()
+        self.assertEqual(self.game.thumbnail_display, "Waterloo")
+        self.assertEqual(Game.objects.get(name="alamo").thumbnail_display, "Alamo")
+        self.assertIn("game waterloo: thumbnail_display updated", output)
+
+    def test_a_thumbnail_display_that_is_not_a_string_is_refused(self):
+        with self.assertRaises(CommandError):
+            self.sync(self.document(thumbnail_display=3))
+
     def test_nothing_else_is_copied_to_a_known_game(self):
         output = self.sync(self.document(max_players=9, options={"a": 2}))
 
@@ -514,3 +567,35 @@ class SyncGameJsonTest(TestCase):
             with self.subTest(document=document):
                 with self.assertRaises(CommandError):
                     self.sync(document)
+
+
+class NationalityListMigrationTest(TestCase):
+    """0010: the nationality of every component becomes a list, at any depth."""
+
+    def setUp(self):
+        self.convert = importlib.import_module("Game.migrations.0010_nationality_list").convert
+
+    def test_strings_become_lists_at_any_depth(self):
+        game_json = {
+            "options": {"nationalities": ["US", "NVA"]},
+            "fixed": [{"kind": "bag", "id": "cup", "components": [{"kind": "token", "nationality": "NVA"}]},
+                      {"kind": "mw_character", "id": "frodo", "nationality": "Free"}],
+            "movable": [{"kind": "token", "id": "a", "nationality": "US"},
+                        {"kind": "token", "id": "b", "nationality": None},
+                        {"kind": "token", "id": "c", "nationality": ["US", "ARVN"]},
+                        {"kind": "token", "id": "d"}],
+        }
+        self.assertTrue(self.convert(game_json, True))
+        self.assertEqual(game_json["fixed"][0]["components"][0]["nationality"], ["NVA"])
+        self.assertEqual(game_json["fixed"][1]["nationality"], ["Free"])
+        self.assertEqual([item.get("nationality") for item in game_json["movable"]],
+                         [["US"], None, ["US", "ARVN"], None])
+        # the nationalities of the game are not touched
+        self.assertEqual(game_json["options"]["nationalities"], ["US", "NVA"])
+        # a second run changes nothing
+        self.assertFalse(self.convert(game_json, True))
+
+    def test_the_reverse_gives_back_the_single_names(self):
+        game_json = {"movable": [{"nationality": ["US"]}, {"nationality": ["US", "ARVN"]}]}
+        self.convert(game_json, False)
+        self.assertEqual(game_json["movable"], [{"nationality": "US"}, {"nationality": ["US", "ARVN"]}])

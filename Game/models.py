@@ -12,6 +12,8 @@ class Game(models.Model):
     name = models.CharField(max_length=64, null=False, blank=False, unique=True)
     # the readable name the lobby shows; empty: the lobby shows the name
     display_name = models.CharField(max_length=128, null=False, blank=True, default="")
+    # the label of the game tab of the lobby; empty: the display_name
+    thumbnail_display = models.CharField(max_length=128, null=False, blank=True, default="")
     # the family the lobby files the game under, one tab per type
     game_type = models.CharField(
         max_length=16, null=False, blank=False, choices=GameType.choices, default=GameType.WARGAME

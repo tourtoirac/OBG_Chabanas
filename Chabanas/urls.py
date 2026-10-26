@@ -24,4 +24,6 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("game/", include("Game.urls")),
     path("session/", include("Session.urls")),
+    # administration of OBG: the sessions of every game, for the staff
+    path("manage/", include("Session.manage_urls")),
 ]

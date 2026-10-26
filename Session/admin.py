@@ -14,6 +14,24 @@ class PlayerInLine(admin.TabularInline):
         "owner"
     )
 
+class HasCodeFilter(admin.SimpleListFilter):
+    """Sessions with or without a code (archived sessions have lost theirs)."""
+    title = "code"
+    parameter_name = "has_code"
+
+    def lookups(self, request, model_admin):
+        return (
+            ("yes", "With a code"),
+            ("no", "Without a code"),
+        )
+
+    def queryset(self, request, queryset):
+        if self.value() == "yes":
+            return queryset.exclude(code="")
+        if self.value() == "no":
+            return queryset.filter(code="")
+        return queryset
+
 @admin.register(Session)
 class SessionAdmin(admin.ModelAdmin):
     fields = (
@@ -48,6 +66,7 @@ class SessionAdmin(admin.ModelAdmin):
     )
     list_filter = (
         "game",
+        HasCodeFilter,
     )
     inlines = [PlayerInLine]
     formfield_overrides = {

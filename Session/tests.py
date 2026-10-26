@@ -4,11 +4,13 @@ import uuid
 from datetime import datetime, timedelta, UTC
 from unittest.mock import patch
 
+from django.contrib import admin
 from django.shortcuts import Http404
 from django.test import TestCase, RequestFactory
 from django.urls import reverse
 
 from Game.models import Game, Variant
+from Session.admin import HasCodeFilter, SessionAdmin
 from Session.tools import (
     generate_session_code,
     is_session_participant,
@@ -174,6 +176,22 @@ class ToolTest(TestCase):
         self.assertEqual(len(data["players"]), 1)
         self.assertNotIn('game_json', data)
         self.assertNotIn('key', data["players"][0])
+
+    def test_return_session_json_names_the_game_or_the_variant_played(self):
+        game = Game.objects.create(name="waterloo", display_name="Waterloo 1815")
+        Variant.objects.create(game=game, name="grouchy", display_name="Grouchy arrive")
+        Variant.objects.create(game=game, name="plain")
+
+        def shown(variant_name):
+            session = Session.objects.create(game=game, variant_name=variant_name)
+            return return_session_json(session)["display_name"]
+
+        self.assertEqual(shown("default"), "Waterloo 1815")
+        self.assertEqual(shown("grouchy"), "Grouchy arrive")
+        # an empty display_name falls back on the name
+        self.assertEqual(shown("plain"), "plain")
+        # a variant since deleted falls back on the game
+        self.assertEqual(shown("gone"), "Waterloo 1815")
 
     def test_return_session_json_with_sat_list(self):
         game = Game.objects.create(name="Test Game")
@@ -782,10 +800,21 @@ class SessionListTests(TestCase):
         self.assertEqual(len(response_content["sessions"]), 0)
         self.assertNotIn('waterloo', response_content["sessions"])
 
-    def test_session_list_excludes_inactive_game_with_active_variants(self):
-        # the lobby asks without game_name_list: an inactive game must not get
-        # a tab, whatever its active variants and sessions
+    def test_session_list_lists_inactive_game_with_active_variant(self):
+        # the lobby asks without game_name_list: an inactive game keeps its tab
+        # as long as one of its variants is active
         Variant.objects.create(game=self.game, name="grouchy", active=True)
+        self.game.active = False
+        self.game.save()
+
+        request = self.factory.post(reverse('session_list'), data=json.dumps({}), content_type='json')
+        response = session_list(request)
+        self.assertEqual(response.status_code, 200)
+        response_content = json.loads(response.content)
+        self.assertEqual(len(response_content["sessions"]['waterloo']), 1)
+
+    def test_session_list_excludes_inactive_game_with_inactive_variants(self):
+        Variant.objects.create(game=self.game, name="grouchy", active=False)
         self.game.active = False
         self.game.save()
 
@@ -1958,3 +1987,27 @@ class NationalityTests(TestCase):
         self.assertEqual(return_session_json(session)["nationalities"], ["US", "NVA"])
         plain = Session.objects.create(game=self.plain_game, game_json=self.plain_game.game_json)
         self.assertEqual(return_session_json(plain)["nationalities"], [])
+
+
+class SessionAdminTests(TestCase):
+
+    def setUp(self):
+        self.factory = RequestFactory()
+        game = Game.objects.create(name="waterloo")
+        self.with_code = Session.objects.create(game=game, code="ABCD1234", active=True)
+        self.without_code = Session.objects.create(game=game, code="", active=False)
+
+    def filtered(self, value):
+        request = self.factory.get("/", {"has_code": value} if value else {})
+        params = dict(request.GET.lists())
+        sessions_filter = HasCodeFilter(request, params, Session, SessionAdmin(Session, admin.site))
+        return set(sessions_filter.queryset(request, Session.objects.all()))
+
+    def test_the_code_filter_keeps_the_sessions_with_a_code(self):
+        self.assertEqual(self.filtered("yes"), {self.with_code})
+
+    def test_the_code_filter_keeps_the_sessions_without_a_code(self):
+        self.assertEqual(self.filtered("no"), {self.without_code})
+
+    def test_without_the_code_filter_every_session_is_listed(self):
+        self.assertEqual(self.filtered(None), {self.with_code, self.without_code})

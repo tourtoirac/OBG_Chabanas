@@ -9,6 +9,7 @@ https://docs.djangoproject.com/en/6.0/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
+import os
 import sys
 from os.path import join
 from pathlib import Path
@@ -72,6 +73,14 @@ MIDDLEWARE = [
 
 
 ROOT_URLCONF = 'Chabanas.urls'
+
+# Administration of OBG (the /manage/ pages, Session/manage.py): the services
+# holding the live connections, called on the Docker network with the secret
+# they share with Chabanas, and the public site whose game pages it opens
+OBG_ADMIN_SECRET = os.getenv('OBG_ADMIN_SECRET', '')
+OBG_TOURTOIRAC_ADMIN_URL = PARAMS_EXT.get('TOURTOIRAC_ADMIN_URL', 'http://obg-tourtoirac:9001')
+OBG_HAUTEFORT_URL = PARAMS_EXT.get('HAUTEFORT_URL', 'http://obg-hautefort:8000')
+OBG_SITE_URL = PARAMS_EXT.get('SITE_URL', f'{URL_PREFIX}/')
 
 CSRF_TRUSTED_ORIGINS = PARAMS_EXT['CSRF_TRUSTED_ORIGINS']
 CORS_ALLOWED_ORIGINS = PARAMS_EXT['CORS_ALLOWED_ORIGINS']

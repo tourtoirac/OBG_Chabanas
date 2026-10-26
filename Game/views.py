@@ -7,7 +7,7 @@ from django.views.decorators.http import require_http_methods
 from Chabanas.params_ext import BAD_REQUEST
 from Chabanas.tools import validate_request
 from Game.models import Game
-from Game.tools import return_game_json
+from Game.tools import listed_games, return_game_json
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +17,8 @@ def game_list(request) -> HttpResponse:
     """
     returns a list of games and their description.
     game_name_list is optional: when given, only these games are returned
-    (active or not); otherwise every active game of the catalogue is.
+    (active or not); otherwise every game of the catalogue that is active or
+    has an active variant is.
     :param request: Request information
     :type request: Http request
     :return: HTTP response code
@@ -31,7 +32,7 @@ def game_list(request) -> HttpResponse:
         return HttpResponse(BAD_REQUEST, status=400)
 
     if game_name_list is None:
-        games = Game.objects.filter(active=True)
+        games = listed_games()
     else:
         games = Game.objects.filter(name__in=game_name_list)
     games = games.order_by("name").prefetch_related("variant_set")

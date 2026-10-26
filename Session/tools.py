@@ -125,6 +125,21 @@ def cleanup_sessions():
     return archived, deleted
 
 
+def session_display_name(session: Session) -> str:
+    """
+    The readable name of what a session plays: the display_name of its
+    variant, or of the game for the default one. A variant since deleted
+    falls back on the game.
+    """
+    game = session.game
+    if session.variant_name and session.variant_name != 'default':
+        # all() rather than filter(): it reads the variants a prefetch loaded
+        for variant in game.variant_set.all():
+            if variant.name == session.variant_name:
+                return variant.display_name or variant.name
+    return game.display_name or game.name
+
+
 def return_session_json(session: Session, sat_list=None):
     """
     returns a JSON object with the session data
@@ -145,6 +160,8 @@ def return_session_json(session: Session, sat_list=None):
 
     data = {
         "name": session.game.name,
+        # what the lobby shows of the game played: its variant, or the game itself
+        "display_name": session_display_name(session),
         "key": session.key,
         "code": session.code,
         "players" : player_list,

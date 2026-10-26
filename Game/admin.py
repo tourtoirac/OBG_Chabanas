@@ -23,6 +23,7 @@ class GameAdmin(admin.ModelAdmin):
         'key',
         'name',
         'display_name',
+        'thumbnail_display',
         'game_type',
         'min_players',
         'max_players',
@@ -37,6 +38,7 @@ class GameAdmin(admin.ModelAdmin):
     list_display = (
         "name",
         "display_name",
+        "thumbnail_display",
         "game_type",
         "active",
         "max_players",
@@ -45,6 +47,7 @@ class GameAdmin(admin.ModelAdmin):
     search_fields = (
         "name",
         "display_name",
+        "thumbnail_display",
     )
     list_filter = (
         'game_type',

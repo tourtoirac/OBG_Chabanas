@@ -13,11 +13,14 @@ VARIANT_FIELDS = ("name", "min_players", "max_players", "max_watchers")
 # copied to a known game or variant as well, when the document carries them:
 # an older export without them leaves the rows of this database alone
 SYNCED_FIELDS = ("game_json", "display_name")
+# a game also has the label of its lobby tab; a variant has none
+GAME_SYNCED_FIELDS = SYNCED_FIELDS + ("thumbnail_display",)
 
 
 class Command(BaseCommand):
     help = (
-        "Copy the game_json and the display_name of the games and variants "
+        "Copy the game_json and the display_name (and the thumbnail_display of "
+        "a game) of the games and variants "
         "described by a JSON document (standard input, or a file) into this "
         "database. Rows are "
         "matched by key. A game or a variant unknown here is created inactive, "
@@ -70,16 +73,17 @@ class Command(BaseCommand):
                     or not isinstance(entry.get("game_json"), dict)
                     or any(entry.get(field) is None for field in fields)
                     or not isinstance(entry.get("display_name", ""), str)
+                    or not isinstance(entry.get("thumbnail_display", ""), str)
                 ):
                     raise CommandError(
                         f"Every entry needs a key, a game_json object and: {', '.join(fields)}; "
-                        "its display_name, when given, is a string."
+                        "its display_name and thumbnail_display, when given, are strings."
                     )
         return document
 
-    def update(self, label, row, entry) -> int:
+    def update(self, label, row, entry, synced=SYNCED_FIELDS) -> int:
         changed = [
-            field for field in SYNCED_FIELDS
+            field for field in synced
             if field in entry and getattr(row, field) != entry[field]
         ]
         if not changed:
@@ -93,10 +97,11 @@ class Command(BaseCommand):
         return 1
 
     @staticmethod
-    def created_fields(entry, fields) -> dict:
+    def created_fields(entry, fields, optional=("display_name",)) -> dict:
         values = {field: entry[field] for field in fields}
-        if "display_name" in entry:
-            values["display_name"] = entry["display_name"]
+        for field in optional:
+            if field in entry:
+                values[field] = entry[field]
         return values
 
     def created(self, label) -> int:
@@ -107,7 +112,7 @@ class Command(BaseCommand):
         label = f"game {entry['name']}"
         game = Game.objects.filter(key=entry["key"]).first()
         if game is not None:
-            return self.update(label, game, entry)
+            return self.update(label, game, entry, GAME_SYNCED_FIELDS)
         if Game.objects.filter(name=entry["name"]).exists():
             # names are unique: this is another game, not ours to overwrite
             self.stdout.write(self.style.WARNING(f"{label}: the name is taken here by another game, skipped"))
@@ -119,7 +124,7 @@ class Command(BaseCommand):
                 game_json=entry["game_json"],
                 options={},
                 active=False,
-                **self.created_fields(entry, GAME_FIELDS),
+                **self.created_fields(entry, GAME_FIELDS, ("display_name", "thumbnail_display")),
             )
         return self.created(label)
 

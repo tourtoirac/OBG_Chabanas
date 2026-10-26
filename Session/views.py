@@ -11,7 +11,7 @@ from Chabanas.params_ext import (
 )
 from Chabanas.tools import validate_request
 from Game.models import Game, Variant
-from Game.tools import starting_game_json
+from Game.tools import listed_games, starting_game_json
 from Session.tools import (
     active_game_count,
     cleanup_sessions,
@@ -145,9 +145,10 @@ def session_get(request) -> HttpResponse:
 @require_http_methods(["POST"])
 def session_list(request) -> HttpResponse:
     """
-    Returns the list of active sessions, grouped by active game.
+    Returns the list of active sessions, grouped by listed game (active, or
+    with an active variant).
     game_name_list is optional: when given, only these games are listed;
-    otherwise every active game of the catalogue is.
+    otherwise every listed game of the catalogue is.
     :param request: Request information
     :type request: Http request
     :return: HTTP response code
@@ -167,9 +168,7 @@ def session_list(request) -> HttpResponse:
     if archived or deleted:
         logger.info(f"Session cleanup: {archived} archived, {deleted} deleted")
 
-    active_game_names = set(
-        Game.objects.filter(active=True).values_list('name', flat=True)
-    )
+    active_game_names = set(listed_games().values_list('name', flat=True))
     if game_name_list is None:
         requested_games = sorted(active_game_names)
     else:
@@ -181,7 +180,7 @@ def session_list(request) -> HttpResponse:
             active=True,
         )
         .select_related("game")
-        .prefetch_related("player_set")
+        .prefetch_related("player_set", "game__variant_set")
     )
 
     active_games = {name: [] for name in requested_games}

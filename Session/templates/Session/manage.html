@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OBG – Administration</title>
+  {% include 'Session/manage_style.html' %}
+</head>
+<body>
+  <header>
+    <h1>OBG – Administration des sessions</h1>
+    <nav class="pages">
+      <a class="current" href="{% url 'manage_page' %}">Sessions</a>
+      <a href="{% url 'manage_refereed_page' %}">Jeux arbitrés</a>
+    </nav>
+    <span class="user">{{ request.user.username }} · <a href="{% url 'admin:index' %}">admin Django</a></span>
+  </header>
+  <main>
+    <div class="toolbar">
+      <label for="game">Jeu</label>
+      <select id="game"><option value="">Chargement…</option></select>
+      <button id="refresh" type="button">Rafraîchir</button>
+      <span id="status" class="muted"></span>
+    </div>
+    <div id="warnings" class="warnings"></div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th title="Quelqu'un est-il connecté ?">Présence</th>
+            <th>Code</th>
+            <th>Jeu</th>
+            <th>Variante</th>
+            <th>Dernière activation</th>
+            <th>Joueurs</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="rows"><tr><td colspan="7" class="muted">Choisissez un jeu.</td></tr></tbody>
+      </table>
+    </div>
+  </main>
+  <script>
+    const API = {
+      games: "{% url 'manage_games' %}",
+      sessions: "{% url 'manage_sessions' %}",
+      archive: "{% url 'manage_archive' %}",
+      delete: "{% url 'manage_delete' %}",
+      access: "{% url 'manage_access' %}",
+    };
+    const CSRF = "{{ csrf_token }}";
+    // the table is refreshed on its own: who is connected changes all the time
+    const REFRESH_MS = 15000;
+
+    const select = document.getElementById("game");
+    const rows = document.getElementById("rows");
+    const statusText = document.getElementById("status");
+    const warnings = document.getElementById("warnings");
+    let busy = false;
+
+    function el(tag, attrs = {}, ...children) {
+      const node = document.createElement(tag);
+      for (const [k, v] of Object.entries(attrs)) {
+        if (k === "class") node.className = v;
+        else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+        else if (v !== false && v !== null && v !== undefined) node.setAttribute(k, v === true ? "" : v);
+      }
+      node.append(...children.filter((c) => c !== null && c !== undefined));
+      return node;
+    }
+
+    async function call(url, body) {
+      const response = await fetch(url, body === undefined ? {} : {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRFToken": CSRF },
+        body: JSON.stringify(body),
+      });
+      // the Django session has expired: back to the login
+      if (response.redirected) { window.location.reload(); throw new Error("Session expirée"); }
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `Erreur ${response.status}`);
+      return data;
+    }
+
+    function showWarnings(list) {
+      warnings.replaceChildren(...(list || []).map((w) => el("p", {}, w)));
+    }
+
+    function formatDate(value) {
+      if (!value) return "jamais";
+      return new Date(value).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" });
+    }
+
+    function presence(row) {
+      if (row.occupied === null) return el("span", { class: "dot unknown", title: "Inconnu : le service ne répond pas" });
+      const connected = row.players.filter((p) => p.connected).length;
+      const title = row.occupied
+        ? `${connected} joueur(s), ${row.watchers.length} spectateur(s) connecté(s)`
+        : "Personne n'est connecté";
+      return el("span", { class: `dot ${row.occupied ? "on" : "off"}`, title });
+    }
+
+    function players(row) {
+      const cell = el("td");
+      if (!row.players.length) cell.append(el("span", { class: "muted" }, "aucun"));
+      row.players.forEach((p, i) => {
+        if (i) cell.append(", ");
+        cell.append(el("span", { class: `nick ${p.connected ? "on" : ""}`, title: p.connected ? "connecté" : "absent" },
+          p.nickname));
+      });
+      if (row.watchers.length) cell.append(el("div", { class: "muted" }, `Spectateurs : ${row.watchers.join(", ")}`));
+      return cell;
+    }
+
+    async function act(kind, row) {
+      if (busy) return;
+      const label = row.code || row.id.slice(0, 8);
+      if (kind === "archive" && !confirm(`Archiver la session ${label} ? Son code sera libéré, les joueurs deviendront spectateurs.`)) return;
+      if (kind === "delete" && !confirm(`Effacer définitivement la session ${label} ? Les joueurs et spectateurs seront sortis de la partie.`)) return;
+      // opened right away: a window opened after an await is blocked as a popup
+      const tab = kind === "access" ? window.open("about:blank", "_blank") : null;
+      busy = true;
+      try {
+        const data = await call(API[kind], { service: row.service, id: row.id });
+        if (tab) tab.location.href = data.url;
+        statusText.textContent = kind === "access" ? "" : (kind === "archive" ? "Session archivée." : "Session effacée.");
+      } catch (e) {
+        if (tab) tab.close();
+        alert(e.message);
+      } finally {
+        busy = false;
+      }
+      if (kind !== "access") { await loadGames(); }
+    }
+
+    function render(list) {
+      if (!list.length) {
+        rows.replaceChildren(el("tr", {}, el("td", { colspan: 7, class: "muted" }, "Aucune session.")));
+        return;
+      }
+      rows.replaceChildren(...list.map((row) => el("tr", { class: row.archived ? "archived" : "" },
+        el("td", {}, presence(row)),
+        el("td", { class: "code" }, row.code || "—"),
+        el("td", {}, row.game, row.archived ? el("span", { class: "tag", title: formatDate(row.archived_at) }, "archivée") : null),
+        el("td", {}, row.variant || el("span", { class: "muted" }, "—")),
+        el("td", {}, formatDate(row.launched_at)),
+        players(row),
+        el("td", {}, el("div", { class: "actions" },
+          el("button", { type: "button", disabled: !row.can_access, title: "Ouvrir la partie en spectateur",
+                         onclick: () => act("access", row) }, "access"),
+          el("button", { type: "button", disabled: row.archived, onclick: () => act("archive", row) }, "archive"),
+          el("button", { type: "button", class: "danger", onclick: () => act("delete", row) }, "delete"),
+        )),
+      )));
+    }
+
+    async function loadSessions() {
+      const game = select.value;
+      if (!game) return;
+      try {
+        const data = await call(`${API.sessions}?game=${encodeURIComponent(game)}`);
+        render(data.sessions);
+        showWarnings(data.warnings);
+      } catch (e) {
+        showWarnings([e.message]);
+      }
+    }
+
+    async function loadGames() {
+      try {
+        const data = await call(API.games);
+        let previous = select.value;
+        try { previous ||= localStorage.getItem("obg_manage_game"); } catch { /* private window */ }
+        select.replaceChildren(el("option", { value: "" }, data.games.length ? "— choisir un jeu —" : "Aucun jeu n'a de session"),
+          ...data.games.map((g) => el("option", { value: g.id }, g.label)));
+        if (data.games.some((g) => g.id === previous)) select.value = previous;
+        showWarnings(data.warnings);
+        if (select.value) await loadSessions();
+        else rows.replaceChildren(el("tr", {}, el("td", { colspan: 7, class: "muted" }, "Choisissez un jeu.")));
+      } catch (e) {
+        showWarnings([e.message]);
+      }
+    }
+
+    select.addEventListener("change", () => {
+      try { localStorage.setItem("obg_manage_game", select.value); } catch { /* private window */ }
+      statusText.textContent = "";
+      void loadSessions();
+    });
+    document.getElementById("refresh").addEventListener("click", () => void loadGames());
+    window.setInterval(() => { if (!busy && document.visibilityState === "visible") void loadSessions(); }, REFRESH_MS);
+    void loadGames();
+  </script>
+</body>
+</html>

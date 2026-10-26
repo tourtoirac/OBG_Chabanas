@@ -95,6 +95,8 @@ Deux applications Django :
 | `Chabanas/params_ext.py` | `DATABASES`, constantes d'erreur, `PARAMS_EXT["SESSION_IDLE_DURATION"]` et `["SESSION_ARCHIVE_DURATION"]` (en jours) |
 | `Game/models.py` | `Game`, `Variant` (FK vers `Game`) |
 | `Game/views.py` | `game_list` uniquement |
+| `Game/json_api.py` | Maintenance authentifiée : `POST /game/json/get` et `/game/json/update`, jeu de base ou variante, secret `OBG_ADMIN_SECRET`, contrôle de révision et verrouillage transactionnel |
+| `scripts/game_json_api.py` | Client HTTP autonome (stdlib) de lecture/remplacement des définitions ; tests des routes : `Game/test_json_api.py` |
 | `Game/tools.py` | `return_game_json` : jeu et variantes actives, **sans** `game_json` ; `starting_game_json` : le `game_json` de départ d'une session |
 | `Game/management/commands/sync_game_json.py` | Recopie le `game_json` des jeux et variantes depuis un document JSON (fichier ou entrée standard `-`), par `key`, avec `--dry-run` ; un jeu ou une variante inconnus sont créés `active=False`, `options` vide. Les `options` ne sont jamais recopiées. Appelée par `OBG/deploy.sh gamejson` |
 | `Game/admin.py` `widgets.py` | Admin (variantes en inline), `PrettyJSONWidget` |
@@ -102,6 +104,7 @@ Deux applications Django :
 | `Session/views.py` | Les 7 vues de session (tableau ci-dessous) |
 | `Session/tools.py` | `generate_session_code` (8 caractères `A-Z0-9`), `return_session_json`, `return_player_json`, `seat_nationality`, `start_session_if_full`, `is_session_participant` (non utilisé par les vues) |
 | `Chabanas/tests.py` `Game/tests.py` `Session/tests.py` | Validation des requêtes, modèles, sérialisation, vues, widget JSON et synchronisation |
+| `Session/manage.py` `manage_urls.py` `manage_clients.py` `templates/Session/manage.html` | Administration de toutes les sessions d'OBG (`manage/`, login staff de l'admin Django) : liste des jeux ayant des sessions (jeux de Chabanas, modules de Hautefort), sessions avec présence, archivage, effacement, accès en spectateur. `manage_clients` appelle Tourtoirac (`OBG_TOURTOIRAC_ADMIN_URL`, port 9001) et Hautefort (`OBG_HAUTEFORT_URL`) avec `OBG_ADMIN_SECRET` (variable d'environnement) ; `OBG_SITE_URL` (`PARAMS_EXT["SITE_URL"]`, défaut `URL_PREFIX + "/"`) est le site dont il ouvre les pages de jeu. `manage/refereed/` (`manage_refereed.html`, routes `api/modules` et `api/module`) liste les jeux arbitrés (modules de Hautefort) et les active ou désactive : l'état est stocké par Hautefort (table `modules`), un jeu inactif disparaît du lobby et n'accepte plus de nouvelle partie. CSS commun des pages : `manage_style.html`. Tests : `Session/test_manage.py` |
 | `Game/static/Game/` | CSS et JavaScript de `PrettyJSONWidget` ; pas d'assets de jeux dans ce dépôt |
 | `Game/migrations/0005_game_type.py` | Ajoute `Game.game_type` (`Boardgame` ou `Wargame`, `Wargame` par défaut) ; `return_game_json` le renvoie sous la clé `type`, que le lobby de Raffaillac lit pour ses onglets. `sync_game_json` ne le recopie pas |
 | `Game/migrations/0006_display_name.py` | Ajoute `Game.display_name` et `Variant.display_name` (texte libre, vide par défaut) : le libellé lisible que le lobby de Raffaillac affiche (onglets des jeux, menu des variantes). `return_game_json` le renvoie sous `display_name`, le `name` quand il est vide ; la variante `default` prend celui du jeu. La création de session passe toujours par `name`. `sync_game_json` le recopie comme le `game_json` (création et mise à jour, par clé) ; un document qui ne le contient pas le laisse tel quel. L'export de `deploy.sh` l'inclut |
@@ -109,13 +112,15 @@ Deux applications Django :
 
 ### Routes
 
-Toutes en `POST` avec un corps JSON. Seul client : `Tourtoirac/chabanas.py`,
+Routes de jeu en `POST` avec un corps JSON. Client de jeu : `Tourtoirac/chabanas.py`,
 qui interroge aussi `/game/list` (avec une liste vide) pour attendre que
 Chabanas réponde avant d'ouvrir son WebSocket. Le navigateur n'appelle jamais
 Chabanas directement.
 
 | Route | Champs requis | Réponse OK | Appelée par Tourtoirac dans |
 | ----- | ------------- | ---------- | --------------------------- |
+| `/game/json/get` | `game_name`, `variant_name` facultatif (`default`) ; en-tête `X-OBG-Admin-Secret` | 200 `{key, game_name, variant_name, game_json, updated_at}` : définition brute, même inactive | maintenance uniquement |
+| `/game/json/update` | mêmes sélecteurs + `game_json` objet et `expected_updated_at` | 200 même réponse ; 409 si révision périmée ; écrit uniquement JSON/date | maintenance uniquement |
 | `/game/list` | — (`game_name_list` facultatif) | 200 `{game_list: [...]}` : sans liste, tous les jeux `active`, triés par nom ; avec liste, ces jeux, actifs ou non | `get_game_list`, `is_ready` (liste vide) |
 | `/session/create` | `game_name`, `nickname` (`nationality` si le jeu en déclare) | 201 `{session_key, session_code}` | `create_session` |
 | `/session/get` | `session_code` | 200 `{session: ...}`, détails optionnels via `sat_list` | `create_session`, `get_session_info` |
@@ -130,6 +135,14 @@ Chabanas directement.
 | `/session/vacate` | `code` (ou `service`) | 200 `{vacated}` | `vacate_game` des deux services |
 | `/session/sync_occupancy` | `service`, `codes` | 200 `{added, removed}` | vérification horaire des deux services |
 | `/session/get_archive` | `key` | 200, session inactive à la racine, avec `game_json` | — (aucun appelant) |
+
+Routes de `manage/` (navigateur d'un membre du staff, pas Tourtoirac) :
+`GET manage/` (la page), `GET manage/api/games`, `GET manage/api/sessions?game=chabanas:<id>|hautefort:<module>`,
+`POST manage/api/archive|delete|access` `{service, id}` (CSRF exigé). Archiver
+une session de Chabanas demande d'abord à Tourtoirac de la clore
+(`/admin/close`, il stocke l'état puis appelle `/session/archive`) ; une
+session absente de sa mémoire est archivée ici. Effacer passe d'abord par
+`/admin/delete` de Tourtoirac. Tourtoirac injoignable : 502, rien n'est fait.
 
 Codes de refus de `/session/join`, traduits par Tourtoirac en codes d'erreur
 WebSocket : 400 rôle invalide, 401 `access_key` ou `key` fausse, 403
@@ -254,8 +267,11 @@ en `{}` pour les formulaires d'admin.
 - `return_session_json` **mute** `session.game_json` en y injectant une clé
   `game` quand `sat_list` contient `game_json`. L'attribut d'instance est
   modifié en mémoire, sans sauvegarde automatique en base.
-- `Game/urls.py` n'expose aujourd'hui que `list`. Ajouter une route = vue +
-  entrée `urlpatterns` avec un `name=`.
+- `Game/urls.py` expose `list`, `json/get` et `json/update`. Les deux dernières
+  sont réservées à la maintenance et ne sont pas appelées par les clients de jeu.
+  Leur accès exige le secret existant (503 si non configuré, 403 si incorrect).
+  La modification vérifie `expected_updated_at` sous verrou transactionnel ;
+  les options, métadonnées et sessions ne sont jamais modifiées.
 - `Game/widgets.py` contient `PrettyJSONWidget`, un formulaire d'édition JSON
   enrichi pour l'admin Django.
 - `settings.py` force le niveau `DEBUG` sur le logger racine : les tests sont
@@ -278,3 +294,13 @@ En revanche, `OBG/deploy/docker-compose.yml` remplace cette commande par
 `collectstatic`, puis `migrate`, puis **Gunicorn avec les workers gevent**
 (`Chabanas.wsgi`, port 80). Vérifier la commande du déploiement concerné
 avant de diagnostiquer le serveur.
+
+## Piece rotation data migration
+
+`Game/migrations/0008_token_rotation_step.py` adds `rotation_step: 45` only to
+top-level `token` / `card` descriptions with `orientable: true` and no such key,
+in `Game.game_json` and `Variant.game_json` (`fixed`, `movable`, `dice`). Existing
+values are preserved. Sessions and container contents are explicitly excluded
+at the user's request (25/10/2026). Reverse migration keeps the data. Tourtoirac
+validates the step as a positive integer divisor of 360; Raffaillac declares
+it in `TokenItem`. Aboukir uses 60. No database schema field is added.

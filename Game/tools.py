@@ -1,4 +1,14 @@
-from Game.models import Game
+from django.db.models import Q, QuerySet
+
+from Game.models import Game, Variant
+
+
+def listed_games() -> QuerySet:
+    """
+    The games the lobby lists: an active game, or a game with at least one
+    active variant (only its active variants can then be created).
+    """
+    return Game.objects.filter(Q(active=True) | Q(variant__active=True)).distinct()
 
 
 def starting_game_json(source) -> dict:
@@ -56,21 +66,23 @@ def return_game_json(game: Game):
         "name": game.name,
         # what the lobby shows; the name stays the identifier of the game
         "display_name": game.display_name or game.name,
+        # the label of the game tab of the lobby
+        "thumbnail_display": game.thumbnail_display or game.display_name or game.name,
         # "Boardgame" or "Wargame": the tab of the lobby the game is listed under
         "type": game.game_type,
-        "variant": {
-            "default": {
-                "key": game.key,
-                "name": "default",
-                # the default variant is the game itself
-                "display_name": game.display_name or game.name,
-                "min_players": game.min_players,
-                "max_players": game.max_players,
-                "max_watchers": game.max_watchers,
-                "nationalities": options_nationalities(game.options),
-            }
-        }
+        "variant": {}
     }
+    # the default variant is the game itself: offered only when the game is active
+    if game.active:
+        game_data['variant']['default'] = {
+            "key": game.key,
+            "name": "default",
+            "display_name": game.display_name or game.name,
+            "min_players": game.min_players,
+            "max_players": game.max_players,
+            "max_watchers": game.max_watchers,
+            "nationalities": options_nationalities(game.options),
+        }
     variants = [variant for variant in game.variant_set.all() if variant.active]
     for variant in variants:
         game_data['variant'][variant.name] = {
@@ -86,3 +98,15 @@ def return_game_json(game: Game):
         }
 
     return game_data
+
+
+def return_definition_json(source) -> dict:
+    """Serialize a raw catalogue definition without session option injection."""
+    is_variant = isinstance(source, Variant)
+    return {
+        "key": str(source.key),
+        "game_name": source.game.name if is_variant else source.name,
+        "variant_name": source.name if is_variant else "default",
+        "game_json": source.game_json,
+        "updated_at": source.updated_at.isoformat(),
+    }
