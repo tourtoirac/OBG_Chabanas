@@ -3,6 +3,7 @@ import logging
 from functools import wraps
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404
@@ -11,7 +12,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from Chabanas.tools import validate_request
-from Game.models import Game, Variant
+from Game.models import Game, Variant, clean_documents_field
 from Game.tools import return_definition_json
 
 logger = logging.getLogger(__name__)
@@ -46,6 +47,8 @@ def read_request(request, update=False):
     if update:
         if not isinstance(data["game_json"], dict):
             return HttpResponse("game_json must be an object", status=400)
+        if "documents" in data and not isinstance(data["documents"], list):
+            return HttpResponse("documents must be a list", status=400)
         if not isinstance(data["expected_updated_at"], str) or not data["expected_updated_at"]:
             return HttpResponse("expected_updated_at must be a nonempty string", status=400)
     return data
@@ -90,9 +93,20 @@ def update_game_json(request):
         if row.updated_at.isoformat() != data["expected_updated_at"]:
             return HttpResponse("Definition changed; read it again before updating", status=409)
         # Never save options, catalogue metadata or existing session state.
+        # The documents are changed only when the request carries them.
+        changed = []
         if row.game_json != data["game_json"]:
             row.game_json = data["game_json"]
-            row.save(update_fields=["game_json", "updated_at"])
-            logger.info("Updated game_json for %s (%s)", row.name, row.key)
+            changed.append("game_json")
+        if "documents" in data and row.documents != data["documents"]:
+            row.documents = data["documents"]
+            try:
+                clean_documents_field(row)
+            except ValidationError:
+                return HttpResponse('documents must be a list of {"src": ..., "name": ...}', status=400)
+            changed.append("documents")
+        if changed:
+            row.save(update_fields=changed + ["updated_at"])
+            logger.info("Updated %s for %s (%s)", " and ".join(changed), row.name, row.key)
         result = return_definition_json(row)
     return JsonResponse(result)

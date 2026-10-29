@@ -98,7 +98,7 @@ Deux applications Django :
 | `Game/json_api.py` | Maintenance authentifiée : `POST /game/json/get` et `/game/json/update`, jeu de base ou variante, secret `OBG_ADMIN_SECRET`, contrôle de révision et verrouillage transactionnel |
 | `scripts/game_json_api.py` | Client HTTP autonome (stdlib) de lecture/remplacement des définitions ; tests des routes : `Game/test_json_api.py` |
 | `Game/tools.py` | `return_game_json` : jeu et variantes actives, **sans** `game_json` ; `starting_game_json` : le `game_json` de départ d'une session |
-| `Game/management/commands/sync_game_json.py` | Recopie le `game_json` des jeux et variantes depuis un document JSON (fichier ou entrée standard `-`), par `key`, avec `--dry-run` ; un jeu ou une variante inconnus sont créés `active=False`, `options` vide. Les `options` ne sont jamais recopiées. Appelée par `OBG/deploy.sh gamejson` |
+| `Game/management/commands/sync_game_json.py` | Recopie le `game_json` et les `documents` des jeux et variantes depuis un document JSON (fichier ou entrée standard `-`), par `key`, avec `--dry-run` ; un jeu ou une variante inconnus sont créés `active=False`, `options` vide. Les `options` ne sont jamais recopiées. Appelée par `OBG/deploy.sh gamejson` |
 | `Game/admin.py` `widgets.py` | Admin (variantes en inline), `PrettyJSONWidget` |
 | `Session/models.py` | `Session` (FK vers `Game`), `Player` (FK vers `Session`) |
 | `Session/views.py` | Les 7 vues de session (tableau ci-dessous) |
@@ -108,6 +108,7 @@ Deux applications Django :
 | `Game/static/Game/` | CSS et JavaScript de `PrettyJSONWidget` ; pas d'assets de jeux dans ce dépôt |
 | `Game/migrations/0005_game_type.py` | Ajoute `Game.game_type` (`Boardgame` ou `Wargame`, `Wargame` par défaut) ; `return_game_json` le renvoie sous la clé `type`, que le lobby de Raffaillac lit pour ses onglets. `sync_game_json` ne le recopie pas |
 | `Game/migrations/0006_display_name.py` | Ajoute `Game.display_name` et `Variant.display_name` (texte libre, vide par défaut) : le libellé lisible que le lobby de Raffaillac affiche (onglets des jeux, menu des variantes). `return_game_json` le renvoie sous `display_name`, le `name` quand il est vide ; la variante `default` prend celui du jeu. La création de session passe toujours par `name`. `sync_game_json` le recopie comme le `game_json` (création et mise à jour, par clé) ; un document qui ne le contient pas le laisse tel quel. L'export de `deploy.sh` l'inclut |
+| `Game/migrations/0013_documents.py` | Ajoute `Game.documents` et `Variant.documents` (JSON, liste `[{"src": ..., "name": ...}]`, vide par défaut ; `clean_documents_field` refuse une entrée sans `src` dans l'admin) et y déplace le bloc `documents` des `game_json` (retiré de ceux-ci ; la migration inverse l'y remet). Depuis le 27/10/2026, les documents ne sont plus dans le `game_json` : `return_game_json` renvoie ceux du **jeu** sous `documents` (le lobby de Raffaillac les affiche au-dessus des sessions ; ceux des variantes n'y figurent pas) et `starting_game_json` ajoute à la création d'une session le bloc `documents` du jeu ou de la variante (une variante a les siens, ceux du jeu ne s'y ajoutent pas ; pas de bloc sans document ; un reste de `documents` dans le `game_json` n'est jamais utilisé). `sync_game_json` et l'export de `deploy.sh` les recopient ; `json/get` les renvoie et `json/update` ne les change que si la requête porte `documents` |
 | `Game/migrations/0004_fix_positions_boolean.py` | Convertit `options.fix_positions` en booléen sur les jeux et variantes ; ne touche pas aux sessions existantes |
 
 ### Routes
@@ -121,6 +122,7 @@ Chabanas directement.
 | ----- | ------------- | ---------- | --------------------------- |
 | `/game/json/get` | `game_name`, `variant_name` facultatif (`default`) ; en-tête `X-OBG-Admin-Secret` | 200 `{key, game_name, variant_name, game_json, updated_at}` : définition brute, même inactive | maintenance uniquement |
 | `/game/json/update` | mêmes sélecteurs + `game_json` objet et `expected_updated_at` | 200 même réponse ; 409 si révision périmée ; écrit uniquement JSON/date | maintenance uniquement |
+| `/game/unlock` | `game_name`, `prototype_key` | 200 `{unlocked: true}` ; 423 clé fausse (jeu en prototypage), 404 jeu inconnu | `unlock_game` |
 | `/game/list` | — (`game_name_list` facultatif) | 200 `{game_list: [...]}` : sans liste, tous les jeux `active`, triés par nom ; avec liste, ces jeux, actifs ou non | `get_game_list`, `is_ready` (liste vide) |
 | `/session/create` | `game_name`, `nickname` (`nationality` si le jeu en déclare) | 201 `{session_key, session_code}` | `create_session` |
 | `/session/get` | `session_code` | 200 `{session: ...}`, détails optionnels via `sat_list` | `create_session`, `get_session_info` |
@@ -147,7 +149,42 @@ session absente de sa mémoire est archivée ici. Effacer passe d'abord par
 Codes de refus de `/session/join`, traduits par Tourtoirac en codes d'erreur
 WebSocket : 400 rôle invalide, 401 `access_key` ou `key` fausse, 403
 spectateurs interdits, 409 session démarrée ou pleine (pour un **nouveau**
-joueur : un pseudo déjà assis revient toujours avec sa `key`).
+joueur : un pseudo déjà assis revient toujours avec sa `key`), 423 clé de
+prototype absente ou fausse.
+
+**Jeux en prototypage** (depuis le 27/10/2026) : `Game.prototype_key`
+(migration `0011`, réglé dans l'admin Django ; vide = jeu public).
+`return_game_json` ne renvoie que `private: true|false`, jamais la clé.
+`/session/create` et `/session/join` (joueur, spectateur, et même un pseudo
+qui revient par le lobby) exigent `prototype_key` (423 sinon,
+`Game/tools.py` `prototype_key_matches`). La reprise d'un siège depuis la
+page de jeu passe par la clé de session (`resume_session` de Tourtoirac) et
+ne revient pas ici. Les jeux arbitrés ont leur propre clé, stockée par
+Hautefort et réglée dans `manage/refereed/` (route `api/module_prototype`).
+
+**Développeurs de prototypes** (`proto/`, depuis le 27/10/2026) : l'admin
+associe des comptes Django (staff ou non) à un jeu (`Game.prototype_users`,
+migration `0012`). Sur `proto/` (`Game/proto_views.py`, `proto_urls.py`,
+gabarits `Game/templates/Game/proto*.html`), un développeur ne voit que ses
+prototypes (404 pour les autres ; un superuser les voit tous) et y envoie :
+l'archive zip des ressources (partagée par les variantes, remplace tout le
+dossier `settings.PROTOTYPES_DIR/<clé du jeu>/`, monté depuis `OBG/Prototypes`
+et servi par Raffaillac sous `/Prototypes/<clé>/`), le `game_json` du jeu ou
+d'une variante, ses **documents** (formulaire « Documents », une liste JSON
+par jeu et par variante, vide pour aucun : `read_documents_upload`, chaque
+`src` réécrit comme une image et vérifié en HEAD par `check_documents` ; un
+bloc `documents` laissé dans un game_json envoyé est déplacé dans le champ
+`documents` par `split_documents`), et la clé du lobby (jamais vide). Règles dans
+`Game/prototype.py` : chemins relatifs à l'archive réécrits en
+`/Prototypes/<clé>/...`, `/Games/` accepté, tout le reste refusé ; pas de SVG
+ni de lien symbolique ; `options` du game_json retiré (l'admin les règle) ;
+100 Mo au plus (`PROTOTYPE_MAX_SIZE` : ressources décompressées + game_json et
+documents du jeu et des variantes). Avant d'enregistrer un game_json, `check_game_json`
+le fait construire par Tourtoirac (`POST /admin/check`, avec les options du
+jeu ou de la variante) et vérifie chaque image en HEAD sur Raffaillac
+(`settings.OBG_RESOURCES_URL`, `http://obg-raffaillac`) : l'archive doit donc
+être envoyée d'abord. `sync_game_json` ignore un jeu qui a des développeurs.
+Tests : `Game/test_proto_pages.py`.
 
 ### Flux de données
 
@@ -277,8 +314,8 @@ en `{}` pour les formulaires d'admin.
 - `settings.py` force le niveau `DEBUG` sur le logger racine : les tests sont
   verbeux.
 - `sync_game_json` attend `{"games": [...], "variants": [...]}` et traite
-  l'import dans une transaction. Une ligne connue ne reçoit que `game_json`
-  et `updated_at` ; ses options et métadonnées restent locales. Un nom de jeu
+  l'import dans une transaction. Une ligne connue ne reçoit que `game_json`,
+  `documents`, `display_name` (`thumbnail_display` pour un jeu) et `updated_at` ; ses options et métadonnées restent locales. Un nom de jeu
   déjà pris sous une autre clé ou une variante sans jeu connu sont ignorés.
 - La migration `0004` transforme `options.fix_positions` : `null` → `false`,
   toute autre valeur non booléenne → `true`. Les anciennes sessions conservent

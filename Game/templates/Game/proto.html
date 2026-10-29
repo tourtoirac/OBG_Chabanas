@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OBG – Prototypes</title>
+  {% include 'Session/manage_style.html' %}
+  <style>
+    .messages p { margin: 0 0 8px; padding: 8px 12px; background: var(--panel); border-left: 3px solid var(--accent); }
+    .messages p.error { border-left-color: var(--danger); }
+    .error { color: var(--danger); }
+    .messages p.warning { border-left-color: #d9a400; }
+    .messages p.success { border-left-color: var(--green); }
+    .proto { margin-bottom: 18px; padding: 16px 20px; background: var(--panel); border: 1px solid var(--line);
+             border-radius: 8px; }
+    .proto h2 { margin: 0 0 4px; font-size: 16px; }
+    .proto dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 12px 0; }
+    .proto dt { color: var(--muted); }
+    .proto dd { margin: 0; overflow-wrap: anywhere; }
+    .proto form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+    .proto form label { min-width: 190px; }
+    .proto input[type=text] { padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px;
+                              background: var(--bg); color: var(--text); font: inherit; }
+    details { margin-top: 6px; }
+    .proto textarea { flex: 1; min-width: 260px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px;
+                      background: var(--bg); color: var(--text); font: 13px/1.4 monospace; }
+    header form { display: inline; }
+    header button.link { border: none; padding: 0; background: none; color: var(--accent); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>OBG – Prototypes</h1>
+    <span class="user">{{ request.user.username }} ·
+      <form method="post" action="{% url 'proto_logout' %}">{% csrf_token %}<button class="link" type="submit">déconnexion</button></form>
+    </span>
+  </header>
+  <main>
+    {% if messages %}
+      <div class="messages">{% for message in messages %}<p class="{{ message.tags }}">{{ message }}</p>{% endfor %}</div>
+    {% endif %}
+
+    <p class="muted">
+      Archive : un <b>.zip</b> des images et documents du jeu (png, jpg, webp, gif, pdf, json, txt), partagé par ses
+      variantes. Elle remplace toutes les ressources du prototype ; si elle ne contient qu'un dossier, son contenu en est
+      la racine. Un prototype pèse 100 Mo au plus : ressources décompressées et game_json du jeu et de ses variantes.
+      Dans le game_json, une image (<code>src</code>, <code>front_src</code>, <code>back_src</code>, <code>icon</code>)
+      s'écrit relativement à l'archive (<code>boards/plateau.jpg</code>) ; elle peut aussi désigner une ressource
+      commune sous <code>/Games/</code>. Les options du jeu restent réglées par l'administrateur.
+      <br>Documents (règles, aides de jeu en PDF) : déclarés à part du game_json, pour le jeu et pour chaque variante,
+      en JSON : <code>[{"src": "rules/regles.pdf", "name": "Règles"}]</code>. Le lobby affiche ceux du jeu au-dessus de
+      ses parties ; une partie reçoit ceux de son jeu, ou ceux de sa variante. Un bloc <code>documents</code> laissé dans
+      un game_json envoyé y est déplacé.
+      <br>Envoyez d'abord l'archive : un game_json n'est enregistré qu'une fois vérifié (JSON valide, chaque
+      <code>kind</code> connu et à sa place, ids uniques, composants complets, toutes les images joignables).
+    </p>
+
+    {% for row in rows %}
+      <section class="proto">
+        <h2>{{ row.game.display_name|default:row.game.name }}</h2>
+        <span class="muted code">{{ row.game.name }}</span>
+        {% if not row.game.prototype_key %}<span class="tag">public</span>{% endif %}
+        {% if not row.game.active %}<span class="tag">inactif : absent du lobby</span>{% endif %}
+        <dl>
+          <dt>Développeurs</dt><dd>{{ row.developers|default:"—" }}</dd>
+          <dt>Ressources</dt>
+          <dd>
+            {% if row.summary.files %}
+              {{ row.summary.files }} fichier(s), {{ row.summary.size|filesizeformat }},
+              installées le {{ row.summary.installed_at|date:"d/m/Y H:i" }} (UTC)
+            {% else %}aucune{% endif %}
+            · <span class="code">{{ row.url }}</span>
+          </dd>
+          <dt>Documents</dt>
+          <dd>
+            {% for doc in row.game.documents %}<a href="{{ doc.src }}" target="_blank" rel="noopener">{{ doc.name|default:doc.src }}</a>{% if not forloop.last %} · {% endif %}{% empty %}aucun document du jeu{% endfor %}
+          </dd>
+          <dt>Poids total</dt><dd>{{ row.summary.total|filesizeformat }} sur {{ row.summary.max|filesizeformat }}</dd>
+          <dt>game_json</dt>
+          <dd>
+            {% if row.game.game_json %}
+              <a href="{% url 'proto_game_json_download' row.game.key %}">télécharger</a>
+              · modifié le {{ row.game.updated_at|date:"d/m/Y H:i" }} (UTC)
+            {% else %}aucun{% endif %}
+            {% for variant in row.variants %}
+              <br>variante <span class="code">{{ variant.name }}</span>{% if not variant.active %} (inactive){% endif %} :
+              <a href="{% url 'proto_game_json_download' row.game.key %}?variant={{ variant.name|urlencode }}">télécharger</a>
+              · modifié le {{ variant.updated_at|date:"d/m/Y H:i" }} (UTC)
+            {% endfor %}
+            {% if row.missing %}
+              <details>
+                <summary class="error">{{ row.missing|length }} ressource(s) absente(s) de l'archive</summary>
+                <ul>{% for url in row.missing %}<li class="code">{{ url }}</li>{% endfor %}</ul>
+              </details>
+            {% endif %}
+          </dd>
+        </dl>
+        <form method="post" action="{% url 'proto_archive' row.game.key %}" enctype="multipart/form-data">
+          {% csrf_token %}
+          <label>Archive des ressources</label>
+          <input type="file" name="archive" accept=".zip,application/zip" required>
+          <button type="submit">Envoyer</button>
+        </form>
+        <form method="post" action="{% url 'proto_game_json' row.game.key %}" enctype="multipart/form-data">
+          {% csrf_token %}
+          <label>game_json</label>
+          {% if row.variants %}
+            <select name="variant">
+              <option value="default">du jeu</option>
+              {% for variant in row.variants %}<option value="{{ variant.name }}">de la variante {{ variant.name }}</option>{% endfor %}
+            </select>
+          {% else %}<input type="hidden" name="variant" value="default">{% endif %}
+          <input type="file" name="game_json" accept=".json,application/json" required>
+          <button type="submit">Envoyer</button>
+        </form>
+        <details>
+          <summary>Documents</summary>
+          {% for docs in row.documents %}
+            <form method="post" action="{% url 'proto_documents' row.game.key %}" class="documents">
+              {% csrf_token %}
+              <input type="hidden" name="variant" value="{{ docs.variant }}">
+              <label>Documents {{ docs.label }}</label>
+              <textarea name="documents" rows="4" placeholder='[{"src": "rules/regles.pdf", "name": "Règles"}]'>{{ docs.text }}</textarea>
+              <button type="submit">Enregistrer</button>
+            </form>
+          {% endfor %}
+        </details>
+        <form method="post" action="{% url 'proto_key' row.game.key %}">
+          {% csrf_token %}
+          <label>Clé demandée dans le lobby</label>
+          <input type="text" name="prototype_key" value="{{ row.game.prototype_key }}" maxlength="64" required>
+          <button type="submit">Changer</button>
+        </form>
+      </section>
+    {% empty %}
+      <p class="muted">Aucun prototype ne vous est associé. Demandez à l'administrateur d'OBG de vous en attribuer un.</p>
+    {% endfor %}
+  </main>
+</body>
+</html>

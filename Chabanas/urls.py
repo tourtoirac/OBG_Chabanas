@@ -26,4 +26,6 @@ urlpatterns = [
     path("session/", include("Session.urls")),
     # administration of OBG: the sessions of every game, for the staff
     path("manage/", include("Session.manage_urls")),
+    # the developers of prototypes upload their game_json and resources
+    path("proto/", include("Game.proto_urls")),
 ]

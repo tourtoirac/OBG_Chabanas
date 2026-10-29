@@ -25,7 +25,9 @@
       <span id="status" class="muted"></span>
     </div>
     <p class="muted">Un jeu désactivé n'apparaît plus dans le lobby et n'accepte plus de nouvelle partie ;
-      ses parties en cours continuent.</p>
+      ses parties en cours continuent.
+      Un jeu en prototypage reste visible dans le lobby, verrouillé : il faut sa clé pour voir,
+      créer ou rejoindre ses parties.</p>
     <div id="warnings" class="warnings"></div>
     <div class="table-wrap">
       <table>
@@ -34,11 +36,12 @@
             <th>Jeu</th>
             <th>Module</th>
             <th>État</th>
+            <th title="Clé demandée dans le lobby ; vide : jeu public">Prototype</th>
             <th title="Parties listées dans le lobby du jeu">Parties</th>
             <th>Action</th>
           </tr>
         </thead>
-        <tbody id="rows"><tr><td colspan="5" class="muted">Chargement…</td></tr></tbody>
+        <tbody id="rows"><tr><td colspan="6" class="muted">Chargement…</td></tr></tbody>
       </table>
     </div>
   </main>
@@ -46,6 +49,7 @@
     const API = {
       modules: "{% url 'manage_modules' %}",
       module: "{% url 'manage_module_active' %}",
+      prototype: "{% url 'manage_module_prototype' %}",
     };
     const CSRF = "{{ csrf_token }}";
 
@@ -94,15 +98,35 @@
       await load();
     }
 
+    async function setPrototype(module) {
+      if (busy) return;
+      const key = prompt(`Clé de prototype de ${module.title} (vide : jeu public)`, module.prototype_key || "");
+      if (key === null) return;
+      busy = true;
+      try {
+        const result = await call(API.prototype, { module: module.module, prototype_key: key.trim() });
+        statusText.textContent = result.prototype_key
+          ? `${module.title} est en prototypage.` : `${module.title} est public.`;
+      } catch (e) {
+        alert(e.message);
+      } finally {
+        busy = false;
+      }
+      await load();
+    }
+
     function render(list) {
       if (!list.length) {
-        rows.replaceChildren(el("tr", {}, el("td", { colspan: 5, class: "muted" }, "Aucun jeu arbitré.")));
+        rows.replaceChildren(el("tr", {}, el("td", { colspan: 6, class: "muted" }, "Aucun jeu arbitré.")));
         return;
       }
       rows.replaceChildren(...list.map((module) => el("tr", {},
         el("td", {}, module.title),
         el("td", { class: "code" }, module.module),
         el("td", {}, el("span", { class: `state ${module.active ? "on" : "off"}` }, module.active ? "actif" : "inactif")),
+        el("td", {}, module.prototype_key
+          ? el("span", { class: "code" }, `🔒 ${module.prototype_key}`) : el("span", { class: "muted" }, "public"),
+          " ", el("button", { type: "button", onclick: () => setPrototype(module) }, "clé…")),
         el("td", {}, String(module.games)),
         el("td", {}, el("button", { type: "button", class: module.active ? "danger" : "",
                                     onclick: () => toggle(module) }, module.active ? "désactiver" : "activer")),

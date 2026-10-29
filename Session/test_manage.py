@@ -236,3 +236,27 @@ class ManageRefereedTest(ManageTestCase):
                          {'module': 'judgedredd', 'active': 'false'}, {'active': True}):
                 self.assertEqual(self.post('manage_module_active', body).status_code, 400)
         set_module.assert_not_called()
+
+
+class ManageModulePrototypeTests(TestCase):
+    """manage/api/module_prototype: puts a refereed game in prototyping."""
+
+    def setUp(self):
+        self.client.force_login(User.objects.create_user('staff', password='x', is_staff=True))
+
+    def post(self, data):
+        return self.client.post(reverse('manage_module_prototype'), json.dumps(data), content_type='application/json')
+
+    def test_the_key_is_given_to_hautefort(self):
+        answer = {'module': 'zargos', 'prototype_key': 'abc'}
+        with patch(f'{CLIENTS}.hautefort_set_prototype', return_value=answer) as set_prototype:
+            response = self.post({'module': 'zargos', 'prototype_key': ' abc '})
+        self.assertEqual(response.json(), answer)
+        set_prototype.assert_called_once_with('zargos', 'abc')
+
+    def test_a_badly_written_request_is_refused(self):
+        with patch(f'{CLIENTS}.hautefort_set_prototype') as set_prototype:
+            for body in ({'module': 'zargos'}, {'module': '', 'prototype_key': ''},
+                         {'module': 'zargos', 'prototype_key': None}, {'module': 'zargos', 'prototype_key': 'x' * 65}):
+                self.assertEqual(self.post(body).status_code, 400)
+        set_prototype.assert_not_called()

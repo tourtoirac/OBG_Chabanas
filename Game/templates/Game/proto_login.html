@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OBG – Prototypes</title>
+  {% include 'Session/manage_style.html' %}
+  <style>
+    .login { max-width: 360px; margin: 48px auto; padding: 24px; background: var(--panel);
+             border: 1px solid var(--line); border-radius: 8px; }
+    .login label { display: block; margin: 12px 0 4px; color: var(--muted); }
+    .login input { width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 6px;
+                   background: var(--bg); color: var(--text); font: inherit; }
+    .login button { margin-top: 16px; width: 100%; padding: 8px; }
+    .error { color: var(--danger); }
+  </style>
+</head>
+<body>
+  <header><h1>OBG – Prototypes</h1></header>
+  <main>
+    <form class="login" method="post">
+      {% csrf_token %}
+      <p class="muted">Connectez-vous avec le compte OBG qui vous a été donné.</p>
+      {% if form.errors %}<p class="error">Identifiant ou mot de passe incorrect.</p>{% endif %}
+      <label for="id_username">Identifiant</label>
+      <input type="text" name="username" id="id_username" autocomplete="username" required autofocus>
+      <label for="id_password">Mot de passe</label>
+      <input type="password" name="password" id="id_password" autocomplete="current-password" required>
+      <input type="hidden" name="next" value="{{ next }}">
+      <button type="submit">Se connecter</button>
+    </form>
+  </main>
+</body>
+</html>

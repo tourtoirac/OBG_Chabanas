@@ -88,10 +88,15 @@ def hautefort_watch(game_id: str) -> dict:
 
 
 def hautefort_modules() -> list:
-    """:return: every module of Hautefort: [{module, title, active, games}]"""
+    """:return: every module of Hautefort: [{module, title, active, prototype_key, games}]"""
     return hautefort('GET', '/admin/api/modules').get('modules', [])
 
 
 def hautefort_set_module(module: str, active: bool) -> dict:
     """Turns a module on or off: an inactive one is offered by no lobby and creates no game."""
     return hautefort('POST', f'/admin/api/modules/{module}', {'active': active})
+
+
+def hautefort_set_prototype(module: str, prototype_key: str) -> dict:
+    """Puts a module in prototyping (empty key: public again): its key is asked to create or join a game."""
+    return hautefort('POST', f'/admin/api/modules/{module}/prototype', {'prototype_key': prototype_key})

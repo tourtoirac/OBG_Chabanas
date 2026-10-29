@@ -38,7 +38,7 @@ class GameJsonApiTest(TestCase):
         self.assertEqual(response.json(), {
             "key": str(self.game.key), "game_name": self.game.name,
             "variant_name": "default", "game_json": self.game.game_json,
-            "updated_at": self.game.updated_at.isoformat(),
+            "documents": [], "updated_at": self.game.updated_at.isoformat(),
         })
 
     def test_reads_an_inactive_variant_without_inheriting_the_base_json(self):
@@ -145,6 +145,18 @@ class GameJsonApiTest(TestCase):
         response = self.post("game_json_update", payload)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["updated_at"], payload["expected_updated_at"])
+
+    def test_the_documents_change_only_when_the_request_carries_them(self):
+        rules = [{"src": "/Games/x/rules.pdf", "name": "Règles"}]
+        self.assertEqual(self.post("game_json_update", self.replacement(documents=rules)).status_code, 200)
+        self.variant.refresh_from_db()
+        self.assertEqual(self.variant.documents, rules)
+        self.assertEqual(self.post("game_json_update", self.replacement()).status_code, 200)
+        self.variant.refresh_from_db()
+        self.assertEqual(self.variant.documents, rules)
+        for wrong in ({"src": "/a.pdf"}, [{"name": "no src"}]):
+            with self.subTest(documents=wrong):
+                self.assertEqual(self.post("game_json_update", self.replacement(documents=wrong)).status_code, 400)
 
     def test_header_authentication_works_without_browser_csrf_tokens(self):
         self.client = Client(enforce_csrf_checks=True)

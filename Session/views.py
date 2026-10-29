@@ -11,7 +11,7 @@ from Chabanas.params_ext import (
 )
 from Chabanas.tools import validate_request
 from Game.models import Game, Variant
-from Game.tools import listed_games, starting_game_json
+from Game.tools import PROTOTYPE_LOCKED, listed_games, prototype_key_matches, starting_game_json
 from Session.tools import (
     active_game_count,
     cleanup_sessions,
@@ -57,6 +57,9 @@ def session_create(request) -> HttpResponse:
     access_key = data.get('access_key', '')
 
     game = get_object_or_404(Game, name=game_name)
+    # a game in prototyping is only created by who has its key
+    if not prototype_key_matches(game, data.get('prototype_key', '')):
+        return HttpResponse(status=423, content=PROTOTYPE_LOCKED)
     variant = None
     if variant_name != 'default':
         variant = get_object_or_404(Variant, game=game, name=variant_name)
@@ -237,6 +240,11 @@ def session_join(request) -> HttpResponse:
     access_key = data.get('access_key', '')
 
     session = get_object_or_404(Session, code=data['session_code'], active=True)
+
+    # a game in prototyping: its key is asked of every new seat and every watcher
+    # coming through the lobby (a resumed seat does not come back here)
+    if not prototype_key_matches(session.game, data.get('prototype_key', '')):
+        return HttpResponse(status=423, content=PROTOTYPE_LOCKED)
 
     if access_key != session.access_key:
         return HttpResponse(status = 401, content=UNAUTHORIZED)

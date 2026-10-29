@@ -12,15 +12,15 @@ GAME_FIELDS = ("name", "min_players", "max_players", "max_watchers")
 VARIANT_FIELDS = ("name", "min_players", "max_players", "max_watchers")
 # copied to a known game or variant as well, when the document carries them:
 # an older export without them leaves the rows of this database alone
-SYNCED_FIELDS = ("game_json", "display_name")
+SYNCED_FIELDS = ("game_json", "display_name", "documents")
 # a game also has the label of its lobby tab; a variant has none
 GAME_SYNCED_FIELDS = SYNCED_FIELDS + ("thumbnail_display",)
 
 
 class Command(BaseCommand):
     help = (
-        "Copy the game_json and the display_name (and the thumbnail_display of "
-        "a game) of the games and variants "
+        "Copy the game_json, the documents and the display_name (and the "
+        "thumbnail_display of a game) of the games and variants "
         "described by a JSON document (standard input, or a file) into this "
         "database. Rows are "
         "matched by key. A game or a variant unknown here is created inactive, "
@@ -74,10 +74,12 @@ class Command(BaseCommand):
                     or any(entry.get(field) is None for field in fields)
                     or not isinstance(entry.get("display_name", ""), str)
                     or not isinstance(entry.get("thumbnail_display", ""), str)
+                    or not isinstance(entry.get("documents", []), list)
                 ):
                     raise CommandError(
                         f"Every entry needs a key, a game_json object and: {', '.join(fields)}; "
-                        "its display_name and thumbnail_display, when given, are strings."
+                        "its display_name and thumbnail_display, when given, are strings, "
+                    "and its documents a list."
                     )
         return document
 
@@ -111,6 +113,10 @@ class Command(BaseCommand):
     def sync_game(self, entry) -> int:
         label = f"game {entry['name']}"
         game = Game.objects.filter(key=entry["key"]).first()
+        if game is not None and game.prototype_users.exists():
+            # its game_json is uploaded by its developers (proto/ pages), not synced
+            self.stdout.write(self.style.WARNING(f"{label}: a prototype with developers here, skipped"))
+            return 0
         if game is not None:
             return self.update(label, game, entry, GAME_SYNCED_FIELDS)
         if Game.objects.filter(name=entry["name"]).exists():
@@ -124,7 +130,7 @@ class Command(BaseCommand):
                 game_json=entry["game_json"],
                 options={},
                 active=False,
-                **self.created_fields(entry, GAME_FIELDS, ("display_name", "thumbnail_display")),
+                **self.created_fields(entry, GAME_FIELDS, ("display_name", "thumbnail_display", "documents")),
             )
         return self.created(label)
 
@@ -146,6 +152,6 @@ class Command(BaseCommand):
                 game_json=entry["game_json"],
                 options={},
                 active=False,
-                **self.created_fields(entry, VARIANT_FIELDS),
+                **self.created_fields(entry, VARIANT_FIELDS, ("display_name", "documents")),
             )
         return self.created(label)

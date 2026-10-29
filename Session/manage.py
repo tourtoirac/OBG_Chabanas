@@ -344,7 +344,7 @@ def manage_modules(request) -> JsonResponse:
     in the lobby, and how many games its lobby lists.
     :param request: Request information
     :type request: Http request
-    :return: {modules: [{module, title, active, games}]}
+    :return: {modules: [{module, title, active, prototype_key, games}]}
     :rtype: JsonResponse
     """
     try:
@@ -375,4 +375,30 @@ def manage_module_active(request) -> HttpResponse:
     except ServiceUnavailable as error:
         return _unavailable(error)
     logger.info("Refereed game %s turned %s by %s", data['module'], 'on' if data['active'] else 'off', request.user)
+    return JsonResponse(result)
+
+
+@staff_member_required
+@require_http_methods(["POST"])
+def manage_module_prototype(request) -> HttpResponse:
+    """
+    Puts a refereed game in prototyping, or makes it public again (empty key).
+    :param request: Request information, JSON {module, prototype_key}
+    :type request: Http request
+    :return: {module, prototype_key}
+    :rtype: HttpResponse
+    """
+    try:
+        data = json.loads(request.body or b'{}')
+    except ValueError:
+        data = None
+    if not isinstance(data, dict) or not isinstance(data.get('module'), str) or not data['module'] \
+            or not isinstance(data.get('prototype_key'), str) or len(data['prototype_key'].strip()) > 64:
+        return HttpResponse(BAD_REQUEST, status=400)
+    try:
+        result = manage_clients.hautefort_set_prototype(data['module'], data['prototype_key'].strip())
+    except ServiceUnavailable as error:
+        return _unavailable(error)
+    logger.info("Refereed game %s %s by %s", data['module'],
+                'put in prototyping' if result.get('prototype_key') else 'made public', request.user)
     return JsonResponse(result)

@@ -3,6 +3,8 @@ import io
 import json
 import tempfile
 
+from django.apps import apps as django_apps
+from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.shortcuts import Http404
@@ -375,6 +377,69 @@ class OptionsFieldTest(TestCase):
         self.assertEqual(starting_game_json(variant), {"fixed": [], "options": {}})
 
 
+class DocumentsFieldTest(TestCase):
+    RULES = {"src": "/Games/waterloo/rules.pdf", "name": "Règles"}
+    CHARTS = {"src": "/Games/waterloo/charts.pdf", "name": "Tables"}
+
+    def test_the_documents_default_to_none(self):
+        game = Game.objects.create(name="waterloo")
+        self.assertEqual(game.documents, [])
+        self.assertEqual(Variant.objects.create(game=game, name="short").documents, [])
+
+    def test_the_form_refuses_documents_without_a_src(self):
+        game = Game(name="waterloo", game_json={"fixed": []}, documents=None)
+        game.full_clean()
+        self.assertEqual(game.documents, [])
+        for wrong in ({"src": "/a.pdf"}, [{"name": "no src"}], ["/a.pdf"]):
+            with self.subTest(documents=wrong), self.assertRaises(ValidationError):
+                Game(name="waterloo", game_json={"fixed": []}, documents=wrong).full_clean()
+
+    def test_a_session_gets_the_documents_of_its_game_or_of_its_variant(self):
+        game = Game.objects.create(name="waterloo", game_json={"fixed": []}, documents=[self.RULES])
+        variant = Variant.objects.create(game=game, name="short", game_json={"fixed": []}, documents=[self.CHARTS])
+        bare = Variant.objects.create(game=game, name="bare", game_json={"fixed": []})
+
+        self.assertEqual(starting_game_json(game)["documents"], [self.RULES])
+        # a variant has its own documents, those of its game are not added
+        self.assertEqual(starting_game_json(variant)["documents"], [self.CHARTS])
+        self.assertNotIn("documents", starting_game_json(bare))
+
+    def test_a_documents_block_left_in_the_game_json_is_never_used(self):
+        game = Game.objects.create(name="waterloo", game_json={"documents": [self.RULES]})
+        self.assertNotIn("documents", starting_game_json(game))
+        game.documents = [{"src": "/a.pdf"}]
+        self.assertEqual(starting_game_json(game)["documents"], [{"src": "/a.pdf", "name": "/a.pdf"}])
+
+    def test_the_lobby_gets_the_documents_of_the_game_only(self):
+        game = Game.objects.create(name="waterloo", documents=[self.RULES])
+        Variant.objects.create(game=game, name="short", documents=[self.CHARTS])
+        game_data = return_game_json(game)
+        self.assertEqual(game_data["documents"], [self.RULES])
+        self.assertNotIn("documents", game_data["variant"]["short"])
+
+
+class DocumentsMigrationTest(TestCase):
+    def test_the_documents_leave_the_game_json(self):
+        migration = importlib.import_module("Game.migrations.0013_documents")
+        rules = {"src": "/Games/waterloo/rules.pdf", "name": "Règles"}
+        game = Game.objects.create(name="waterloo", game_json={"fixed": [], "documents": [rules, {"name": "x"}]})
+        variant = Variant.objects.create(game=game, name="short", game_json={"documents": [{"src": "/a.pdf"}]})
+        other = Game.objects.create(name="alamo", game_json={"fixed": []})
+
+        migration.move_documents_out(django_apps, None)
+
+        game.refresh_from_db()
+        variant.refresh_from_db()
+        other.refresh_from_db()
+        self.assertEqual((game.game_json, game.documents), ({"fixed": []}, [rules]))
+        self.assertEqual((variant.game_json, variant.documents), ({}, [{"src": "/a.pdf", "name": "/a.pdf"}]))
+        self.assertEqual((other.game_json, other.documents), ({"fixed": []}, []))
+
+        migration.move_documents_back(django_apps, None)
+        game.refresh_from_db()
+        self.assertEqual(game.game_json["documents"], [rules])
+
+
 class SyncGameJsonTest(TestCase):
     NEW_GAME = "11111111-2222-3333-4444-555555555555"
     NEW_VARIANT = "66666666-7777-8888-9999-000000000000"
@@ -474,6 +539,22 @@ class SyncGameJsonTest(TestCase):
 
         self.assertEqual(Game.objects.get(name="alamo").display_name, "The Alamo")
         self.assertEqual(Variant.objects.get(key=self.NEW_VARIANT).display_name, "Night assault")
+
+    def test_the_documents_are_copied(self):
+        rules = [{"src": "/Games/waterloo/rules.pdf", "name": "Règles"}]
+        document = self.document(documents=rules)
+        document["variants"][0]["documents"] = rules
+        document["games"].append(self.game_entry(key=self.NEW_GAME, name="alamo", documents=rules))
+
+        output = self.sync(document)
+
+        self.game.refresh_from_db()
+        self.variant.refresh_from_db()
+        self.assertEqual((self.game.documents, self.variant.documents), (rules, rules))
+        self.assertEqual(Game.objects.get(name="alamo").documents, rules)
+        self.assertIn("game waterloo: documents updated", output)
+        with self.assertRaises(CommandError):
+            self.sync(self.document(documents={"src": "/a.pdf"}))
 
     def test_the_thumbnail_display_of_a_game_is_copied(self):
         document = self.document(thumbnail_display="Waterloo")

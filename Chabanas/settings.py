@@ -80,6 +80,9 @@ ROOT_URLCONF = 'Chabanas.urls'
 OBG_ADMIN_SECRET = os.getenv('OBG_ADMIN_SECRET', '')
 OBG_TOURTOIRAC_ADMIN_URL = PARAMS_EXT.get('TOURTOIRAC_ADMIN_URL', 'http://obg-tourtoirac:9001')
 OBG_HAUTEFORT_URL = PARAMS_EXT.get('HAUTEFORT_URL', 'http://obg-hautefort:8000')
+# Raffaillac on the Docker network: Chabanas checks there that every picture of an
+# uploaded game_json answers (Game/prototype.py)
+OBG_RESOURCES_URL = PARAMS_EXT.get('RESOURCES_URL', 'http://obg-raffaillac')
 OBG_SITE_URL = PARAMS_EXT.get('SITE_URL', f'{URL_PREFIX}/')
 
 CSRF_TRUSTED_ORIGINS = PARAMS_EXT['CSRF_TRUSTED_ORIGINS']
@@ -158,6 +161,16 @@ USE_TZ = True
 
 STATIC_URL = f'{URL_PREFIX}/static/'
 STATIC_ROOT = join(BASE_DIR, "static")
+
+# The resources of the prototypes (Game/prototype.py): one folder per game, named
+# by its key, written by the proto/ pages and served read-only by Raffaillac under
+# PROTOTYPES_URL, next to /Games/ (OBG/Prototypes, never synced by deploy.sh)
+PROTOTYPES_DIR = Path(os.environ.get('OBG_PROTOTYPES_DIR', '/prototypes'))
+PROTOTYPES_URL = '/Prototypes/'
+# the most a prototype weighs: its unpacked resources, plus the game_json of the
+# game and of each of its variants
+PROTOTYPE_MAX_SIZE = 100 * 1024 * 1024
+PROTOTYPE_FILES_MAX = 2000
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 

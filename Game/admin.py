@@ -30,8 +30,12 @@ class GameAdmin(admin.ModelAdmin):
         'max_watchers',
         "game_json",
         "options",
+        "documents",
         "active",
+        "prototype_key",
+        "prototype_users",
     )
+    filter_horizontal = ("prototype_users",)
     readonly_fields = (
         "key",
     )
@@ -72,6 +76,7 @@ class VariantAdmin(admin.ModelAdmin):
         'max_watchers',
         "game_json",
         "options",
+        "documents",
         "active",
     )
     readonly_fields = (

@@ -14,4 +14,6 @@ urlpatterns = [
     path("refereed/", manage.manage_refereed_page, name="manage_refereed_page"),
     path("api/modules", manage.manage_modules, name="manage_modules"),
     path("api/module", manage.manage_module_active, name="manage_module_active"),
+    # a refereed game in prototyping: its key, empty for a public game
+    path("api/module_prototype", manage.manage_module_prototype, name="manage_module_prototype"),
 ]

@@ -1,3 +1,5 @@
+import hmac
+
 from django.db.models import Q, QuerySet
 
 from Game.models import Game, Variant
@@ -11,11 +13,32 @@ def listed_games() -> QuerySet:
     return Game.objects.filter(Q(active=True) | Q(variant__active=True)).distinct()
 
 
+def read_documents(documents) -> list:
+    """
+    The documents of a game or a variant (its documents field), as the lobby and
+    the sessions get them.
+    :return: [{"src": ..., "name": ...}] in their order; an entry without a src
+        is left out, one without a name takes its src as name
+    """
+    cleaned = []
+    for document in documents if isinstance(documents, list) else []:
+        if not isinstance(document, dict):
+            continue
+        src = document.get("src")
+        if not isinstance(src, str) or not src:
+            continue
+        name = document.get("name")
+        cleaned.append({"src": src, "name": name if isinstance(name, str) and name else src})
+    return cleaned
+
+
 def starting_game_json(source) -> dict:
     """
     Builds the game_json a session starts with: the game_json of the game or of
-    the variant, where the "options" block is replaced by its options field.
-    An "options" key left in the game_json itself is never used.
+    the variant, where the "options" block is replaced by its options field and
+    the "documents" block by its documents field, when it has any (a variant has
+    its own documents, those of its game are not added). An "options" or "documents"
+    key left in the game_json itself is never used.
     :param source: the game or the variant the session is created from
     :type source: Game | Variant
     :return: a new dict, the game_json of the source is left untouched
@@ -23,6 +46,10 @@ def starting_game_json(source) -> dict:
     """
     game_json = dict(source.game_json) if isinstance(source.game_json, dict) else {}
     game_json['options'] = dict(source.options) if isinstance(source.options, dict) else {}
+    game_json.pop('documents', None)
+    documents = read_documents(source.documents)
+    if documents:
+        game_json['documents'] = documents
     return game_json
 
 
@@ -70,6 +97,10 @@ def return_game_json(game: Game):
         "thumbnail_display": game.thumbnail_display or game.display_name or game.name,
         # "Boardgame" or "Wargame": the tab of the lobby the game is listed under
         "type": game.game_type,
+        # a prototype: the lobby asks for its key; the key itself never leaves Chabanas
+        "private": bool(game.prototype_key),
+        # the documents of the game, listed above its sessions; a variant's are only in its sessions
+        "documents": read_documents(game.documents),
         "variant": {}
     }
     # the default variant is the game itself: offered only when the game is active
@@ -100,6 +131,20 @@ def return_game_json(game: Game):
     return game_data
 
 
+# the answer (status 423) to a create or a join of a prototype without its key
+PROTOTYPE_LOCKED = "Wrong prototype key"
+
+
+def prototype_key_matches(game: Game, prototype_key) -> bool:
+    """
+    Whether that key opens the game: any key opens a public game.
+    :param prototype_key: what the player gave, from the request
+    """
+    if not game.prototype_key:
+        return True
+    return isinstance(prototype_key, str) and hmac.compare_digest(prototype_key, game.prototype_key)
+
+
 def return_definition_json(source) -> dict:
     """Serialize a raw catalogue definition without session option injection."""
     is_variant = isinstance(source, Variant)
@@ -108,5 +153,6 @@ def return_definition_json(source) -> dict:
         "game_name": source.game.name if is_variant else source.name,
         "variant_name": source.name if is_variant else "default",
         "game_json": source.game_json,
+        "documents": source.documents,
         "updated_at": source.updated_at.isoformat(),
     }
