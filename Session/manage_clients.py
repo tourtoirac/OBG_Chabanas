@@ -88,7 +88,7 @@ def hautefort_watch(game_id: str) -> dict:
 
 
 def hautefort_modules() -> list:
-    """:return: every module of Hautefort: [{module, title, active, prototype_key, games}]"""
+    """:return: every module of Hautefort: [{module, title, active, prototype_key, documents, games}]"""
     return hautefort('GET', '/admin/api/modules').get('modules', [])
 
 
@@ -100,3 +100,8 @@ def hautefort_set_module(module: str, active: bool) -> dict:
 def hautefort_set_prototype(module: str, prototype_key: str) -> dict:
     """Puts a module in prototyping (empty key: public again): its key is asked to create or join a game."""
     return hautefort('POST', f'/admin/api/modules/{module}/prototype', {'prototype_key': prototype_key})
+
+
+def hautefort_set_documents(module: str, documents: list) -> dict:
+    """Replaces the documents of a module (rules, charts...: [{src, name}]), offered by its lobby and game page."""
+    return hautefort('POST', f'/admin/api/modules/{module}/documents', {'documents': documents})

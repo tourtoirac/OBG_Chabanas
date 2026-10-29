@@ -260,3 +260,40 @@ class ManageModulePrototypeTests(TestCase):
                          {'module': 'zargos', 'prototype_key': None}, {'module': 'zargos', 'prototype_key': 'x' * 65}):
                 self.assertEqual(self.post(body).status_code, 400)
         set_prototype.assert_not_called()
+
+
+class ManageModuleDocumentsTests(TestCase):
+    """manage/api/module_documents: replaces the documents of a refereed game."""
+
+    RULES = [{'src': '/Games/Zargos/resources/rules/rules.pdf', 'name': 'Livret de règles'}]
+
+    def setUp(self):
+        self.client.force_login(User.objects.create_user('staff', password='x', is_staff=True))
+
+    def post(self, data):
+        return self.client.post(reverse('manage_module_documents'), json.dumps(data), content_type='application/json')
+
+    def test_the_documents_are_given_to_hautefort(self):
+        answer = {'module': 'zargos', 'documents': self.RULES}
+        with patch(f'{CLIENTS}.hautefort_set_documents', return_value=answer) as set_documents:
+            response = self.post({'module': 'zargos', 'documents': [
+                {'src': ' /Games/Zargos/resources/rules/rules.pdf ', 'name': ' Livret de règles '}]})
+        self.assertEqual(response.json(), answer)
+        set_documents.assert_called_once_with('zargos', self.RULES)
+
+    def test_no_document_is_allowed(self):
+        with patch(f'{CLIENTS}.hautefort_set_documents', return_value={}) as set_documents:
+            self.assertEqual(self.post({'module': 'zargos', 'documents': []}).status_code, 200)
+        set_documents.assert_called_once_with('zargos', [])
+
+    def test_a_badly_written_request_is_refused(self):
+        with patch(f'{CLIENTS}.hautefort_set_documents') as set_documents:
+            for body in ({'module': 'zargos'}, {'module': '', 'documents': []}, {'documents': []},
+                         {'module': 'zargos', 'documents': 'rules.pdf'},
+                         {'module': 'zargos', 'documents': [{'src': 'rules.pdf'}]},
+                         {'module': 'zargos', 'documents': [{'src': ' ', 'name': 'Règles'}]},
+                         {'module': 'zargos', 'documents': [{'src': 'rules.pdf', 'name': 3}]},
+                         {'module': 'zargos', 'documents': [{'src': 'x' * 501, 'name': 'Règles'}]}):
+                with self.subTest(body=body):
+                    self.assertEqual(self.post(body).status_code, 400)
+        set_documents.assert_not_called()

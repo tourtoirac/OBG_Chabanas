@@ -8,6 +8,15 @@
   <style>
     .state.on { color: var(--green); font-weight: 600; }
     .state.off { color: var(--red); font-weight: 600; }
+    .documents a { color: var(--accent); }
+    dialog { width: min(760px, calc(100vw - 32px)); border: 1px solid var(--line); border-radius: 8px;
+             background: var(--panel); color: var(--text); padding: 18px 20px; }
+    dialog::backdrop { background: rgba(0, 0, 0, .35); }
+    dialog h2 { margin: 0 0 8px; font-size: 16px; }
+    dialog textarea { width: 100%; min-height: 260px; font: 13px/1.4 ui-monospace, monospace; padding: 8px;
+                      border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text); }
+    dialog .buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+    dialog .error { color: var(--danger); min-height: 1.4em; margin: 6px 0 0; }
   </style>
 </head>
 <body>
@@ -27,7 +36,9 @@
     <p class="muted">Un jeu désactivé n'apparaît plus dans le lobby et n'accepte plus de nouvelle partie ;
       ses parties en cours continuent.
       Un jeu en prototypage reste visible dans le lobby, verrouillé : il faut sa clé pour voir,
-      créer ou rejoindre ses parties.</p>
+      créer ou rejoindre ses parties.
+      Les documents (règles, aides de jeu) sont proposés dans le lobby au-dessus des parties du jeu,
+      et dans la page de chaque partie.</p>
     <div id="warnings" class="warnings"></div>
     <div class="table-wrap">
       <table>
@@ -37,19 +48,35 @@
             <th>Module</th>
             <th>État</th>
             <th title="Clé demandée dans le lobby ; vide : jeu public">Prototype</th>
+            <th title="Règles, aides de jeu : proposées dans le lobby et dans la page de partie">Documents</th>
             <th title="Parties listées dans le lobby du jeu">Parties</th>
             <th>Action</th>
           </tr>
         </thead>
-        <tbody id="rows"><tr><td colspan="6" class="muted">Chargement…</td></tr></tbody>
+        <tbody id="rows"><tr><td colspan="7" class="muted">Chargement…</td></tr></tbody>
       </table>
     </div>
   </main>
+  <dialog id="documents-dialog">
+    <form method="dialog" id="documents-form">
+      <h2 id="documents-title">Documents</h2>
+      <p class="muted">Une liste JSON : <code>[{"src": "/Games/Zargos/resources/rules/rules.pdf", "name": "Livret de règles"}]</code>.
+        <code>src</code> est l'adresse du fichier, en général sous <code>/Games/</code> (dossier OBG/Games) ;
+        <code>name</code> est le libellé affiché. Vide ou <code>[]</code> : aucun document.</p>
+      <textarea id="documents-text" spellcheck="false" aria-label="Documents en JSON"></textarea>
+      <p class="error" id="documents-error"></p>
+      <div class="buttons">
+        <button type="button" id="documents-cancel">Annuler</button>
+        <button type="submit" id="documents-save">Enregistrer</button>
+      </div>
+    </form>
+  </dialog>
   <script>
     const API = {
       modules: "{% url 'manage_modules' %}",
       module: "{% url 'manage_module_active' %}",
       prototype: "{% url 'manage_module_prototype' %}",
+      documents: "{% url 'manage_module_documents' %}",
     };
     const CSRF = "{{ csrf_token }}";
 
@@ -115,9 +142,60 @@
       await load();
     }
 
+    // the documents of one game, edited as JSON in a dialog
+    const dialog = document.getElementById("documents-dialog");
+    const documentsText = document.getElementById("documents-text");
+    const documentsError = document.getElementById("documents-error");
+    let editedModule = null;
+
+    function editDocuments(module) {
+      editedModule = module;
+      document.getElementById("documents-title").textContent = `Documents de ${module.title}`;
+      documentsText.value = module.documents?.length ? JSON.stringify(module.documents, null, 2) : "";
+      documentsError.textContent = "";
+      dialog.showModal();
+    }
+
+    document.getElementById("documents-cancel").addEventListener("click", () => dialog.close());
+    document.getElementById("documents-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (busy || !editedModule) return;
+      let documents;
+      try {
+        documents = documentsText.value.trim() ? JSON.parse(documentsText.value) : [];
+      } catch (e) {
+        documentsError.textContent = `JSON invalide : ${e.message}`;
+        return;
+      }
+      if (!Array.isArray(documents) || documents.some((d) => typeof d !== "object" || d === null
+          || typeof d.src !== "string" || !d.src.trim() || typeof d.name !== "string" || !d.name.trim())) {
+        documentsError.textContent = 'Une liste de {"src": "...", "name": "..."} est attendue, src et name non vides.';
+        return;
+      }
+      busy = true;
+      try {
+        const result = await call(API.documents, { module: editedModule.module, documents });
+        statusText.textContent = `${editedModule.title} : ${result.documents.length} document(s).`;
+        dialog.close();
+      } catch (e) {
+        documentsError.textContent = e.message;
+      } finally {
+        busy = false;
+      }
+      await load();
+    });
+
+    function renderDocuments(module) {
+      const links = (module.documents || []).flatMap((d, i) => [
+        ...(i ? [" · "] : []), el("a", { href: d.src, target: "_blank", rel: "noopener" }, d.name)]);
+      return el("td", { class: "documents" },
+        ...(links.length ? links : [el("span", { class: "muted" }, "aucun")]),
+        " ", el("button", { type: "button", onclick: () => editDocuments(module) }, "modifier…"));
+    }
+
     function render(list) {
       if (!list.length) {
-        rows.replaceChildren(el("tr", {}, el("td", { colspan: 6, class: "muted" }, "Aucun jeu arbitré.")));
+        rows.replaceChildren(el("tr", {}, el("td", { colspan: 7, class: "muted" }, "Aucun jeu arbitré.")));
         return;
       }
       rows.replaceChildren(...list.map((module) => el("tr", {},
@@ -127,6 +205,7 @@
         el("td", {}, module.prototype_key
           ? el("span", { class: "code" }, `🔒 ${module.prototype_key}`) : el("span", { class: "muted" }, "public"),
           " ", el("button", { type: "button", onclick: () => setPrototype(module) }, "clé…")),
+        renderDocuments(module),
         el("td", {}, String(module.games)),
         el("td", {}, el("button", { type: "button", class: module.active ? "danger" : "",
                                     onclick: () => toggle(module) }, module.active ? "désactiver" : "activer")),

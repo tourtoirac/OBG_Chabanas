@@ -9,7 +9,9 @@ players turned into watchers) and delete it (everybody taken out of it).
 
 The page manage/refereed/ lists the refereed games (the modules of
 Hautefort) and turns each of them on or off: an inactive one is offered by no
-lobby and creates no game; its games already there go on.
+lobby and creates no game; its games already there go on. It also sets
+their documents (rules, charts...), shown by the lobby and the game page as
+those of a Chabanas game.
 
 A game of the drop-down list is named "chabanas:<Game.id>" or
 "hautefort:<module>"; a session "chabanas" + its key, or "hautefort" + the id
@@ -344,7 +346,7 @@ def manage_modules(request) -> JsonResponse:
     in the lobby, and how many games its lobby lists.
     :param request: Request information
     :type request: Http request
-    :return: {modules: [{module, title, active, prototype_key, games}]}
+    :return: {modules: [{module, title, active, prototype_key, documents, games}]}
     :rtype: JsonResponse
     """
     try:
@@ -401,4 +403,50 @@ def manage_module_prototype(request) -> HttpResponse:
         return _unavailable(error)
     logger.info("Refereed game %s %s by %s", data['module'],
                 'put in prototyping' if result.get('prototype_key') else 'made public', request.user)
+    return JsonResponse(result)
+
+
+# the longest src and name of a document, as Hautefort keeps them
+DOCUMENT_SRC_MAX = 500
+DOCUMENT_NAME_MAX = 200
+
+
+def _read_documents(documents) -> list | None:
+    """:return: the documents [{src, name}], blanks around dropped; None when badly written"""
+    if not isinstance(documents, list) or len(documents) > 100:
+        return None
+    cleaned = []
+    for document in documents:
+        if not isinstance(document, dict) or not isinstance(document.get('src'), str) \
+                or not isinstance(document.get('name'), str):
+            return None
+        src, name = document['src'].strip(), document['name'].strip()
+        if not src or not name or len(src) > DOCUMENT_SRC_MAX or len(name) > DOCUMENT_NAME_MAX:
+            return None
+        cleaned.append({'src': src, 'name': name})
+    return cleaned
+
+
+@staff_member_required
+@require_http_methods(["POST"])
+def manage_module_documents(request) -> HttpResponse:
+    """
+    Replaces the documents (rules, charts...) of a refereed game.
+    :param request: Request information, JSON {module, documents: [{src, name}]}
+    :type request: Http request
+    :return: {module, documents}
+    :rtype: HttpResponse
+    """
+    try:
+        data = json.loads(request.body or b'{}')
+    except ValueError:
+        data = None
+    documents = _read_documents(data.get('documents')) if isinstance(data, dict) else None
+    if documents is None or not isinstance(data.get('module'), str) or not data['module']:
+        return HttpResponse(BAD_REQUEST, status=400)
+    try:
+        result = manage_clients.hautefort_set_documents(data['module'], documents)
+    except ServiceUnavailable as error:
+        return _unavailable(error)
+    logger.info("Documents of refereed game %s replaced by %s (%d)", data['module'], request.user, len(documents))
     return JsonResponse(result)
