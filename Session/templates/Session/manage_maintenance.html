@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OBG – Maintenance</title>
+  {% include 'Session/manage_style.html' %}
+  <style>
+    .panel { max-width: 760px; padding: 16px 20px; margin-bottom: 18px; background: var(--panel);
+             border: 1px solid var(--line); border-radius: 8px; }
+    .panel h2 { margin: 0 0 10px; font-size: 16px; }
+    .form { display: grid; grid-template-columns: max-content 1fr; gap: 10px 14px; align-items: center; }
+    .form input, .form textarea { font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px;
+                                  background: var(--bg); color: var(--text); }
+    .form input[type=number] { width: 90px; }
+    .form textarea { width: 100%; min-height: 60px; resize: vertical; }
+    .buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+    .phase { font-weight: 600; }
+    .phase.none { color: var(--green); }
+    .phase.announced { color: #c77c00; }
+    .phase.started { color: var(--red); }
+    .phase.error { color: var(--danger); }
+    #countdown { font-size: 18px; font-weight: 600; margin: 6px 0 0; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>OBG – Maintenance</h1>
+    <nav class="pages">
+      <a href="{% url 'manage_page' %}">Sessions</a>
+      <a href="{% url 'manage_refereed_page' %}">Jeux arbitrés</a>
+      <a class="current" href="{% url 'manage_maintenance_page' %}">Maintenance</a>
+    </nav>
+    <span class="user">{{ request.user.username }} · <a href="{% url 'admin:index' %}">admin Django</a></span>
+  </header>
+  <main>
+    <p class="muted" style="max-width: 760px">
+      Annoncée, la maintenance affiche un compte à rebours dans toutes les pages (lobby, parties sur table
+      et parties arbitrées) et plus personne ne peut créer ni rejoindre une partie (un joueur peut reprendre sa place) ; les parties en cours continuent.
+      À l'heure dite, les parties sont sauvegardées, les joueurs et les spectateurs voient un écran
+      « Maintenance en cours » et leurs pages se reconnectent seules, à la fin, sur la partie là où elle en était.
+      Terminer la maintenance accepte de nouveau les connexions (un redémarrage de Tourtoirac ou de Hautefort la termine aussi).
+      En production, <code>deploy.sh --maintenance=5</code> fait tout cela autour d'un déploiement.
+    </p>
+    <div id="warnings" class="warnings"></div>
+
+    <section class="panel">
+      <h2>État</h2>
+      <table>
+        <thead><tr><th>Service</th><th>Phase</th><th>Début</th><th>Durée annoncée</th><th>Message</th></tr></thead>
+        <tbody id="rows"><tr><td colspan="5" class="muted">Chargement…</td></tr></tbody>
+      </table>
+      <p id="countdown"></p>
+      <div class="buttons">
+        <button id="refresh" type="button">Rafraîchir</button>
+        <button id="start" type="button" class="danger">Démarrer maintenant</button>
+        <button id="cancel" type="button">Annuler l'annonce</button>
+        <button id="end" type="button">Terminer la maintenance</button>
+        <span id="status" class="muted"></span>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Annoncer une maintenance</h2>
+      <form id="announce-form" class="form">
+        <label for="minutes">Dans (minutes)</label>
+        <input id="minutes" type="number" min="0" max="1440" value="5" required>
+        <label for="duration">Durée annoncée (minutes)</label>
+        <input id="duration" type="number" min="1" max="1440" value="10" required>
+        <label for="message">Message (facultatif)</label>
+        <textarea id="message" maxlength="300" placeholder="Par exemple : mise à jour des jeux arbitrés"></textarea>
+        <span></span>
+        <div><button type="submit">Annoncer</button></div>
+      </form>
+    </section>
+  </main>
+  <script>
+    const API = "{% url 'manage_maintenance' %}";
+    const CSRF = "{{ csrf_token }}";
+    const NAMES = { tourtoirac: "Tourtoirac (jeux sur table)", hautefort: "Hautefort (jeux arbitrés)" };
+    const PHASES = { none: "Aucune", announced: "Annoncée", started: "En cours" };
+
+    const rows = document.getElementById("rows");
+    const warnings = document.getElementById("warnings");
+    const statusText = document.getElementById("status");
+    const countdown = document.getElementById("countdown");
+    let services = {};
+    let busy = false;
+    let reload = null;
+
+    function el(tag, attrs = {}, ...children) {
+      const node = document.createElement(tag);
+      for (const [k, v] of Object.entries(attrs)) {
+        if (k === "class") node.className = v;
+        else node.setAttribute(k, v);
+      }
+      node.append(...children.filter((c) => c !== null && c !== undefined));
+      return node;
+    }
+
+    async function call(body) {
+      const response = await fetch(API, body === undefined ? {} : {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRFToken": CSRF },
+        body: JSON.stringify(body),
+      });
+      // the Django session has expired: back to the login
+      if (response.redirected) { window.location.reload(); throw new Error("Session expirée"); }
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `Erreur ${response.status}`);
+      return data;
+    }
+
+    function date(value) {
+      return value ? new Date(value).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "medium" }) : "—";
+    }
+
+    function show(data) {
+      services = data.services || {};
+      warnings.replaceChildren(...(data.errors || []).map((e) => el("p", {}, `Service injoignable — ${e}`)));
+      rows.replaceChildren(...Object.entries(services).map(([name, s]) => el("tr", {},
+        el("td", {}, NAMES[name] || name),
+        s.error
+          ? el("td", { class: "phase error", colspan: "4" }, "Injoignable")
+          : el("td", { class: `phase ${s.phase}` }, PHASES[s.phase] || s.phase),
+        s.error ? null : el("td", {}, date(s.starts_at)),
+        s.error ? null : el("td", {}, s.duration_minutes ? `${s.duration_minutes} min` : "—"),
+        s.error ? null : el("td", {}, s.message || "—"),
+      )));
+      const phases = Object.values(services).filter((s) => !s.error).map((s) => s.phase);
+      document.getElementById("start").disabled = phases.length > 0 && phases.every((p) => p === "started");
+      document.getElementById("cancel").disabled = !phases.includes("announced");
+      document.getElementById("end").disabled = !phases.includes("started");
+      tick();
+    }
+
+    function tick() {
+      const announced = Object.values(services).find((s) => s.phase === "announced");
+      const started = Object.values(services).some((s) => s.phase === "started");
+      if (announced && announced.starts_at) {
+        const left = Math.max(0, Math.ceil((Date.parse(announced.starts_at) - Date.now()) / 1000));
+        countdown.textContent = left > 0
+          ? `Début dans ${Math.floor(left / 60)} min ${String(left % 60).padStart(2, "0")} s`
+          : "Début imminent…";
+        // the services start on their own: their new phase is read a little after
+        if (left === 0 && !busy && reload === null) reload = window.setTimeout(() => { reload = null; load(); }, 3000);
+      } else {
+        countdown.textContent = started ? "Maintenance en cours : les connexions sont refusées." : "";
+      }
+    }
+
+    async function load() {
+      try {
+        show(await call());
+      } catch (e) {
+        warnings.replaceChildren(el("p", {}, e.message));
+      }
+    }
+
+    async function act(body, confirmation, done) {
+      if (busy || (confirmation && !confirm(confirmation))) return;
+      busy = true;
+      try {
+        show(await call(body));
+        statusText.textContent = done;
+      } catch (e) {
+        alert(e.message);
+      } finally {
+        busy = false;
+      }
+    }
+
+    document.getElementById("refresh").addEventListener("click", load);
+    document.getElementById("start").addEventListener("click", () => act({ action: "start" },
+      "Démarrer la maintenance maintenant ? Les parties sont sauvegardées et tous les joueurs déconnectés.",
+      "Maintenance démarrée."));
+    document.getElementById("cancel").addEventListener("click", () => act({ action: "cancel" },
+      "Annuler la maintenance annoncée ?", "Annonce retirée."));
+    document.getElementById("end").addEventListener("click", () => act({ action: "end" },
+      "Terminer la maintenance ? Les joueurs vont se reconnecter.", "Maintenance terminée."));
+    document.getElementById("announce-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const minutes = Number(document.getElementById("minutes").value);
+      const duration = Number(document.getElementById("duration").value);
+      act({ action: "announce", minutes_before: minutes, duration_minutes: duration,
+            message: document.getElementById("message").value },
+          `Annoncer une maintenance dans ${minutes} min, pour ${duration} min, à tous les joueurs ?`,
+          "Maintenance annoncée.");
+    });
+    window.setInterval(tick, 1000);
+    load();
+  </script>
+</body>
+</html>

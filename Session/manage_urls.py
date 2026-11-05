@@ -18,4 +18,7 @@ urlpatterns = [
     path("api/module_prototype", manage.manage_module_prototype, name="manage_module_prototype"),
     # the documents (rules, charts...) of a refereed game
     path("api/module_documents", manage.manage_module_documents, name="manage_module_documents"),
+    # the maintenance of the site, announced to every game (Session/maintenance.py)
+    path("maintenance/", manage.manage_maintenance_page, name="manage_maintenance_page"),
+    path("api/maintenance", manage.manage_maintenance, name="manage_maintenance"),
 ]

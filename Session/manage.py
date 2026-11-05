@@ -7,6 +7,10 @@ code, its game and variant, its last launch, its players; and three actions:
 watch it (even when it refuses watchers), archive it (its code freed, the
 players turned into watchers) and delete it (everybody taken out of it).
 
+The page manage/maintenance/ announces a maintenance of the site to the
+players and watchers of every game, starts it, cancels it or ends it
+(Session/maintenance.py).
+
 The page manage/refereed/ lists the refereed games (the modules of
 Hautefort) and turns each of them on or off: an inactive one is offered by no
 lobby and creates no game; its games already there go on. It also sets
@@ -30,7 +34,7 @@ from django.views.decorators.http import require_http_methods
 
 from Chabanas.params_ext import BAD_REQUEST
 from Game.models import Game, Variant
-from Session import manage_clients
+from Session import maintenance, manage_clients
 from Session.manage_clients import ServiceUnavailable
 from Session.models import Session
 from Session.tools import drop_stale_occupancy
@@ -450,3 +454,50 @@ def manage_module_documents(request) -> HttpResponse:
         return _unavailable(error)
     logger.info("Documents of refereed game %s replaced by %s (%d)", data['module'], request.user, len(documents))
     return JsonResponse(result)
+
+
+# Maintenance of the site
+# -------------------------------------------------
+
+@staff_member_required
+@require_http_methods(["GET"])
+def manage_maintenance_page(request) -> HttpResponse:
+    """
+    The page of the maintenance, filled by manage_maintenance.
+    :param request: Request information
+    :type request: Http request
+    :return: the page
+    :rtype: HttpResponse
+    """
+    return render(request, 'Session/manage_maintenance.html')
+
+
+@staff_member_required
+@require_http_methods(["GET", "POST"])
+def manage_maintenance(request) -> HttpResponse:
+    """
+    GET: the maintenance as each service holds it. POST: an action sent to every
+    service, JSON {action: announce|start|cancel|end, minutes_before,
+    duration_minutes, message} (the last three for announce only).
+    :param request: Request information
+    :type request: Http request
+    :return: {services: {tourtoirac: state or {error}, hautefort: ...}, errors: [...]}
+    :rtype: HttpResponse
+    """
+    if request.method == 'GET':
+        states = maintenance.status()
+    else:
+        try:
+            data = json.loads(request.body or b'{}')
+        except ValueError:
+            data = None
+        if not isinstance(data, dict) or not isinstance(data.get('action'), str):
+            return HttpResponse(BAD_REQUEST, status=400)
+        try:
+            states = maintenance.apply(data['action'], data.get('minutes_before'), data.get('duration_minutes'),
+                                       data.get('message', ''))
+        except maintenance.MaintenanceRequestError as error:
+            return JsonResponse({'error': str(error)}, status=400)
+        logger.info("Maintenance %s by %s: %s", data['action'], request.user,
+                    {name: state.get('phase', 'error') for name, state in states.items()})
+    return JsonResponse({'services': states, 'errors': maintenance.failures(states)})

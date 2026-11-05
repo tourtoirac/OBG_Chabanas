@@ -3,7 +3,7 @@ FROM python:3.14-slim
 # Variables d'environnement
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    POETRY_VERSION=2.1.3 \
+    POETRY_VERSION=2.5.1 \
     POETRY_HOME="/opt/poetry" \
     POETRY_VIRTUALENVS_CREATE=false \
     POETRY_NO_INTERACTION=1

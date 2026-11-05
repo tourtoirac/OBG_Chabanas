@@ -105,3 +105,17 @@ def hautefort_set_prototype(module: str, prototype_key: str) -> dict:
 def hautefort_set_documents(module: str, documents: list) -> dict:
     """Replaces the documents of a module (rules, charts...: [{src, name}]), offered by its lobby and game page."""
     return hautefort('POST', f'/admin/api/modules/{module}/documents', {'documents': documents})
+
+
+def tourtoirac_maintenance(body: dict | None = None) -> dict:
+    """:return: the maintenance of Tourtoirac, after the action of body ({action, ...}) when given"""
+    if body is None:
+        return tourtoirac('GET', '/admin/maintenance')
+    return tourtoirac('POST', '/admin/maintenance', body)
+
+
+def hautefort_maintenance(body: dict | None = None) -> dict:
+    """:return: the maintenance of Hautefort, after the action of body ({action, ...}) when given"""
+    if body is None:
+        return hautefort('GET', '/admin/api/maintenance')
+    return hautefort('POST', '/admin/api/maintenance', body)
