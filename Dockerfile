@@ -9,11 +9,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     POETRY_NO_INTERACTION=1
 
 # Installation des dépendances système
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# apt-get upgrade: security fixes not yet in the base image
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     curl \
     build-essential \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# Up-to-date pip (the base image's pip vendors outdated urllib3/msgpack)
+RUN pip install --no-cache-dir --upgrade pip
 
 # Installation de Poetry
 RUN curl -sSL https://install.python-poetry.org | python3 -
