@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OBG – Messages</title>
+  {% load tz %}
+  {% include 'Session/manage_style.html' %}
+  <style>
+    .messages-list { max-width: 900px; }
+    .messages-list a.row { display: flex; gap: 14px; align-items: baseline; padding: 10px 14px; color: var(--text);
+                          text-decoration: none; border-bottom: 1px solid var(--line); }
+    .messages-list a.row:last-child { border-bottom: none; }
+    .messages-list a.row:hover { background: rgba(127, 127, 127, .08); }
+    .messages-list .date { white-space: nowrap; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .messages-list .preview { flex: 1; overflow-wrap: anywhere; }
+    .messages-list .mail { width: 1.4em; text-align: center; }
+    .messages-list .unread .preview, .messages-list .unread .date { font-weight: 600; color: var(--text); }
+    .messages-list .read .preview { color: var(--muted); }
+    .messages-list .empty { padding: 14px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>OBG – Messages</h1>
+    {% include 'Session/manage_nav.html' with current='messages' %}
+    <span class="user">{{ request.user.username }} · <a href="{% url 'admin:index' %}">admin Django</a></span>
+  </header>
+  <main>
+    <div class="table-wrap messages-list">
+      {% for message in messages_list %}
+        <a class="row {% if message.read %}read{% else %}unread{% endif %}" href="{% url 'manage_message_page' message.id %}">
+          <span class="date">{{ message.created_at|timezone:"Europe/Paris"|date:"d/m/Y H:i" }}</span>
+          <span class="mail" title="{% if message.email %}Email fourni{% endif %}">{% if message.email %}✉{% endif %}</span>
+          <span class="preview">{{ message.preview }}</span>
+        </a>
+      {% empty %}
+        <p class="empty muted">Aucun message.</p>
+      {% endfor %}
+    </div>
+  </main>
+</body>
+</html>

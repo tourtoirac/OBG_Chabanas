@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OBG – Message</title>
+  {% load tz %}
+  {% include 'Session/manage_style.html' %}
+  <style>
+    .back { display: inline-block; margin-bottom: 14px; color: var(--accent); }
+    .panel { max-width: 900px; padding: 16px 20px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+    .meta { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0 0 14px; }
+    .meta dt { color: var(--muted); }
+    .meta dd { margin: 0; }
+    .text { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+    .buttons { display: flex; gap: 8px; margin-top: 16px; }
+    .buttons form { margin: 0; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>OBG – Message</h1>
+    {% include 'Session/manage_nav.html' with current='messages' %}
+    <span class="user">{{ request.user.username }} · <a href="{% url 'admin:index' %}">admin Django</a></span>
+  </header>
+  <main>
+    <a class="back" href="{% url 'manage_messages_page' %}">Retour à la liste</a>
+    <section class="panel">
+      <dl class="meta">
+        <dt>Date</dt><dd>{{ message.created_at|timezone:"Europe/Paris"|date:"d/m/Y H:i" }}{% if message.read %} · lu{% endif %}</dd>
+        {% if message.email %}<dt>Email</dt><dd><a href="mailto:{{ message.email }}">{{ message.email }}</a></dd>{% endif %}
+      </dl>
+      <p class="text">{{ message.text }}</p>
+      <div class="buttons">
+        <form method="post" action="{% url 'manage_message_delete' message.id %}"
+              onsubmit="return confirm('Supprimer ce message ?')">
+          {% csrf_token %}<button type="submit" class="danger">Supprimer</button>
+        </form>
+        {% if not message.read %}
+        <form method="post" action="{% url 'manage_message_read' message.id %}">
+          {% csrf_token %}<button type="submit">Marquer comme lu</button>
+        </form>
+        {% endif %}
+      </div>
+    </section>
+  </main>
+</body>
+</html>

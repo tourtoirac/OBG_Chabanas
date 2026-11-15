@@ -56,6 +56,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "Game.apps.GameConfig",
     "Session.apps.SessionConfig",
+    "Contact.apps.ContactConfig",
     "watchman",
 ]
 

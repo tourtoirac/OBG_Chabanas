@@ -1,0 +1,8 @@
+{# the menu of the administration pages: {% include 'Session/manage_nav.html' with current='sessions' %} #}
+{% load contact_tags %}{% unread_messages as unread %}
+    <nav class="pages">
+      <a{% if current == 'sessions' %} class="current"{% endif %} href="{% url 'manage_page' %}">Sessions</a>
+      <a{% if current == 'refereed' %} class="current"{% endif %} href="{% url 'manage_refereed_page' %}">Jeux arbitrés</a>
+      <a{% if current == 'messages' %} class="current"{% endif %} href="{% url 'manage_messages_page' %}">Messages ({{ unread }})</a>
+      <a{% if current == 'maintenance' %} class="current"{% endif %} href="{% url 'manage_maintenance_page' %}">Maintenance</a>
+    </nav>

@@ -1,5 +1,6 @@
 from django.urls import path
 
+from Contact import views as contact
 from Session import manage
 
 # the administration of OBG, mounted under manage/ (Chabanas/urls.py)
@@ -21,4 +22,9 @@ urlpatterns = [
     # the maintenance of the site, announced to every game (Session/maintenance.py)
     path("maintenance/", manage.manage_maintenance_page, name="manage_maintenance_page"),
     path("api/maintenance", manage.manage_maintenance, name="manage_maintenance"),
+    # the messages sent by the contact form of the lobby (Contact/views.py)
+    path("messages/", contact.manage_messages_page, name="manage_messages_page"),
+    path("messages/<int:message_id>/", contact.manage_message_page, name="manage_message_page"),
+    path("messages/<int:message_id>/read", contact.manage_message_read, name="manage_message_read"),
+    path("messages/<int:message_id>/delete", contact.manage_message_delete, name="manage_message_delete"),
 ]

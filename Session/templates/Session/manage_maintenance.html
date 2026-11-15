@@ -26,11 +26,7 @@
 <body>
   <header>
     <h1>OBG – Maintenance</h1>
-    <nav class="pages">
-      <a href="{% url 'manage_page' %}">Sessions</a>
-      <a href="{% url 'manage_refereed_page' %}">Jeux arbitrés</a>
-      <a class="current" href="{% url 'manage_maintenance_page' %}">Maintenance</a>
-    </nav>
+    {% include 'Session/manage_nav.html' with current='maintenance' %}
     <span class="user">{{ request.user.username }} · <a href="{% url 'admin:index' %}">admin Django</a></span>
   </header>
   <main>

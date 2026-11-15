@@ -28,4 +28,6 @@ urlpatterns = [
     path("manage/", include("Session.manage_urls")),
     # the developers of prototypes upload their game_json and resources
     path("proto/", include("Game.proto_urls")),
+    # the contact form of the lobby, public
+    path("contact/", include("Contact.urls")),
 ]
